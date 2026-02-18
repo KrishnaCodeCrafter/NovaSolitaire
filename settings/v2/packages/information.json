@@ -9,6 +9,15 @@
         "complete": false,
         "form": "https://creator-api.cocos.com/api/form/show?"
       }
+    },
+    "removeSplash": {
+      "id": "removeSplash",
+      "label": "removeSplash",
+      "enable": false,
+      "removeSplash": {
+        "complete": false,
+        "form": "https://creator-api.cocos.com/api/form/show?"
+      }
     }
   }
 }
