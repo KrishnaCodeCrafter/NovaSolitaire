@@ -17,6 +17,19 @@ export class ResolutionManager extends Component {
     @property(Node)
     landscapeUI: Node = null!;  
 
+    // --- NEW: BACKGROUND NODES ---
+    @property(Node)
+    portraitBackground: Node = null!;
+
+    @property(Node)
+    landscapeBackground: Node = null!;
+
+    @property(Node)
+    portraitIcon: Node = null!; 
+
+    @property(Node)
+    landscapeIcon: Node = null!;
+
     // 2. ADD PROPERTY TO CONNECT GAME MANAGER
     @property(GameManager)
     gameManager: GameManager = null!; 
@@ -43,14 +56,28 @@ export class ResolutionManager extends Component {
         if (isLandscape) {
             if (this.landscapeLogo) this.landscapeLogo.active = true;
             if (this.landscapeUI) this.landscapeUI.active = true;
+            if (this.landscapeBackground) this.landscapeBackground.active = true; // Show landscape BG
+            
             if (this.portraitLogo) this.portraitLogo.active = false;
             if (this.portraitUI) this.portraitUI.active = false;
+            if (this.portraitBackground) this.portraitBackground.active = false; // Hide portrait BG
+
+
+            if (this.landscapeIcon) this.landscapeIcon.active = true;
+            if (this.portraitIcon) this.portraitIcon.active = false;
             console.log("Switched to Landscape UI");
         } else {
             if (this.portraitLogo) this.portraitLogo.active = true;
             if (this.portraitUI) this.portraitUI.active = true;
+            if (this.portraitBackground) this.portraitBackground.active = true; // Show portrait BG
+
             if (this.landscapeLogo) this.landscapeLogo.active = false;
             if (this.landscapeUI) this.landscapeUI.active = false;
+            if (this.landscapeBackground) this.landscapeBackground.active = false; // Hide landscape BG
+
+            if (this.portraitIcon) this.portraitIcon.active = true;
+            if (this.landscapeIcon) this.landscapeIcon.active = false;
+
             console.log("Switched to Portrait UI");
         }
         
@@ -61,6 +88,7 @@ export class ResolutionManager extends Component {
             console.log("[ResolutionManager] Layout changed -> Resetting Guide Timer");
             // This clears the current hint arrow immediately and resets the 5s timer
             this.gameManager.resetIdleTimer();
+            this.gameManager.refreshHandTutorial();
         }
     }
 }

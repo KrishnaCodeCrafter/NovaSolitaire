@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Vec3, tween, UIOpacity, isValid, AudioSource, AudioClip, UITransform, Label, CCInteger, Color } from 'cc';
+import { _decorator, Component, Node, Vec3, tween, UIOpacity, isValid, AudioSource, AudioClip, UITransform, Label, CCInteger, Tween, input, Input, ParticleSystem2D } from 'cc';
 import { StackOutline } from './stackOutline'; 
 
 const { ccclass, property } = _decorator;
@@ -19,7 +19,7 @@ interface CardLogicComponent extends Component {
     setHighlightState?(isActive: boolean): void;
 }
 
-// 🔥 RESTORED: Move Interface for Hints
+// Interface for Hints
 interface StrategicMove {
     type: string;
     from: Node;
@@ -41,13 +41,17 @@ interface CardAnimationData {
 export class GameManager extends Component {
 
     // --- UI REFERENCES ---
-    @property(Node) public introNode: Node = null!;
+    @property(Node) public introNode: Node = null!; // Now used for the post-deal message
+    @property(Node) public handNode: Node = null!;
+    @property(Node) public popupNode: Node = null!; 
     @property(Node) public mainNode: Node = null!;
     @property(Node) public ctaScreen: Node = null!;       
     @property(Node) public youLostScreen: Node = null!;   
     @property(Node) public globalOverlay: Node = null!;
     @property({ type: AudioClip }) public bgmClip: AudioClip = null!;
     @property({ type: AudioClip }) public cardDropSound: AudioClip = null!;
+
+    @property({ type: ParticleSystem2D }) public confettiParticle: ParticleSystem2D = null!;
 
     // --- MOVES SYSTEM ---
     @property({ type: Label }) public movesLabel: Label = null!;
@@ -64,6 +68,9 @@ export class GameManager extends Component {
     @property public idleHintDelay: number = 5.0;
 
     // --- INTERNAL STATE ---
+    private _movesMade: number = 0; 
+    private _isFirstMovePending: boolean = true; 
+    private _isIntroShowing: boolean = false; // Tracks if the intro message is currently active
     private _audioSource: AudioSource = null!;
     private _gameWon: boolean = false;
     private _gameOver: boolean = false; 
@@ -73,7 +80,7 @@ export class GameManager extends Component {
     private _currentMoves: number = 0;   
     private _totalHiddenCards: number = 21; 
     private _revealedCount: number = 0;
-    private _animationComplete: boolean = false; // Track when animation finishes
+    private _animationComplete: boolean = false; 
 
     onLoad() {
         this.initBGM();
@@ -82,9 +89,11 @@ export class GameManager extends Component {
     }
 
     update(dt: number) {
-        // Only check for hints after animation is complete
         if (!this._gameWon && !this._gameOver && !this._isHintActive && !this._isAutoPlaying && 
             this.mainNode.active && this._animationComplete) {
+            
+            if (this._isFirstMovePending) return;
+
             this._idleTimer += dt;
             if (this._idleTimer >= this.idleHintDelay) {
                 this.showDynamicHint();
@@ -101,11 +110,20 @@ export class GameManager extends Component {
     public addValidMove(clickedNode: Node) {
         if (this._gameWon || this._gameOver || this._isAutoPlaying) return;
 
+        if (this._isFirstMovePending) {
+            this._isFirstMovePending = false;
+            this.hideHandTutorial();
+        }
+
         this.resetIdleTimer();
         this.ensureAudioPlays();
 
         this._currentMoves--;
         this.updateMovesLabel();
+        this._movesMade++;
+        if (this._movesMade === 5) {
+            this.showPopup();
+        }
 
         if (this._currentMoves <= 0) {
             this.triggerLoseState();
@@ -116,21 +134,61 @@ export class GameManager extends Component {
     }
 
     // =========================================================================
-    // 🎬 INITIAL CARD DROP ANIMATION
+    // 5-MOVE POPUP LOGIC
+    // =========================================================================
+
+    private showPopup() {
+        if (!this.popupNode) return;
+        
+        this.popupNode.active = true;
+        
+        const op = this.popupNode.getComponent(UIOpacity) || this.popupNode.addComponent(UIOpacity);
+        op.opacity = 0;
+        
+        this.popupNode.setScale(new Vec3(0.5, 0.5, 1));
+        
+        tween(op).to(0.3, { opacity: 255 }).start();
+        
+        tween(this.popupNode)
+            .to(0.4, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' })
+            .start();
+
+        // NEW: Listen globally for ANY touch on the screen
+        input.on(Input.EventType.TOUCH_START, this.hidePopup, this);
+    }
+
+    private hidePopup() {
+        if (!this.popupNode || !this.popupNode.active) return;
+
+        // NEW: Remove the global listener immediately so it doesn't trigger multiple times
+        input.off(Input.EventType.TOUCH_START, this.hidePopup, this);
+
+        const op = this.popupNode.getComponent(UIOpacity);
+        if (op) {
+            tween(op).to(0.2, { opacity: 0 }).start();
+        }
+        
+        tween(this.popupNode)
+            .to(0.2, { scale: new Vec3(0.8, 0.8, 1) }, { easing: 'backIn' })
+            .call(() => {
+                this.popupNode.active = false;
+            })
+            .start();
+    }
+
+    // =========================================================================
+    // INITIAL CARD DROP ANIMATION
     // =========================================================================
 
     private startGameLogic() {
         if (this.mainNode) {
             this.mainNode.active = true;
             
-            // First, hide all tableau cards initially using opacity
             this.hideTableauCards();
             
-            // Fade in the main node
             tween(this.mainNode.getComponent(UIOpacity) || this.mainNode.addComponent(UIOpacity))
                 .to(0.3, { opacity: 255 })
                 .call(() => {
-                    // Start the card drop animation
                     this.animateCardsDropping();
                 })
                 .start();
@@ -138,7 +196,6 @@ export class GameManager extends Component {
     }
 
     private hideTableauCards() {
-        // Just hide them. We will move them during the animation phase.
         this.tableauNodes.forEach((pile) => {
             const cardLogic = pile.getComponent('CardLogic') as unknown as CardLogicComponent;
             const cardNodes = pile.children.filter(c => 
@@ -158,13 +215,11 @@ export class GameManager extends Component {
         const cardAnimations: CardAnimationData[] = [];
         const stockWorldPos = this.stockNode.getWorldPosition();
 
-        // 1. CAPTURE & HIDE STOCK/WASTE
         const originalStockScale = this.stockNode.getScale().clone();
         const originalWasteScale = this.wasteNode.getScale().clone();
         this.stockNode.setScale(new Vec3(0, 0, 1));
         this.wasteNode.setScale(new Vec3(0, 0, 1));
 
-        // 2. PREPARE DATA
         this.tableauNodes.forEach((pile, columnIndex) => {
             const cardLogic = pile.getComponent('CardLogic') as unknown as CardLogicComponent;
             const cardNodes = pile.children.filter(c => 
@@ -174,10 +229,7 @@ export class GameManager extends Component {
             );
             
             cardNodes.forEach((card, rowIndex) => {
-                // CAPTURE DESTINATION (Editor Position)
                 const finalPos = card.getPosition().clone(); 
-
-                // CAPTURE START (Stock Position converted to Local)
                 const transform = card.parent?.getComponent(UITransform);
                 const localStart = transform ? transform.convertToNodeSpaceAR(stockWorldPos) : new Vec3(0,0,0);
 
@@ -194,7 +246,6 @@ export class GameManager extends Component {
             });
         });
 
-        // SORTING: Column by Column (Left to Right) for a "Wave" feel
         cardAnimations.sort((a, b) => {
             if (a.column === b.column) return a.row - b.row;
             return a.column - b.column;
@@ -202,51 +253,41 @@ export class GameManager extends Component {
 
         let maxDuration = 0;
 
-        // 3. ANIMATE WITH BEZIER CURVES
         cardAnimations.forEach((data, index) => {
             const card = data.node;
             //@ts-ignore
             const startPos = data.startPos as Vec3;
             const endPos = new Vec3(data.originalX, data.originalY, data.originalZ);
 
-            // A. SETUP
             card.setPosition(startPos);
-            card.setScale(new Vec3(0, 0, 1)); // Start tiny
-            card.angle = 180; // Start rotated
+            card.setScale(new Vec3(0, 0, 1)); 
+            card.angle = 180; 
             const opacity = card.getComponent(UIOpacity);
             if(opacity) opacity.opacity = 255;
 
-            // B. CALCULATE CONTROL POINT FOR ARC
-            // The control point is halfway between start/end, but higher up (Y axis)
-            // This creates the "Arc" effect.
             const midX = (startPos.x + endPos.x) / 2;
-            const midY = (startPos.y + endPos.y) / 2 + 300; // +300 makes the arc high!
+            const midY = (startPos.y + endPos.y) / 2 + 300; 
             const controlPos = new Vec3(midX, midY, 0);
 
-            // C. TIMING
             const delay = 0.1 + (index * 0.08); 
             const flightDuration = 0.6;
             maxDuration = Math.max(maxDuration, delay + flightDuration);
 
-            // Play Sound
             if (index % 3 === 0) {
                 this.scheduleOnce(() => {
                     if(this._audioSource && this.cardDropSound) this._audioSource.playOneShot(this.cardDropSound, 0.3);
                 }, delay);
             }
 
-            // D. TWEEN EXECUTION
-            // We use a dummy object to tween a "t" value from 0 to 1
             const tweenObj = { t: 0 };
             
             tween(tweenObj)
                 .delay(delay)
                 .to(flightDuration, { t: 1 }, { 
-                    easing: 'sineOut', // Smooth deceleration
+                    easing: 'sineOut', 
                     onUpdate: (target: {t: number}) => {
                         const t = target.t;
                         
-                        // BEZIER MATH: (1-t)^2 * P0 + 2(1-t)t * P1 + t^2 * P2
                         const u = 1 - t;
                         const tt = t * t;
                         const uu = u * u;
@@ -255,32 +296,24 @@ export class GameManager extends Component {
                         const y = (uu * startPos.y) + (2 * u * t * controlPos.y) + (tt * endPos.y);
                         
                         card.setPosition(x, y, 0);
-                        
-                        // FLIP & SCALE EFFECT while flying
-                        // Spin 360 -> 0
                         card.angle = 180 - (180 * t); 
                         
-                        // Scale up mid-flight (at t=0.5), then down
-                        // Simple parabola for scale: 4 * t * (1-t) peaks at 0.5
                         const scaleAdd = 0.5 * (4 * t * (1 - t)); 
                         card.setScale(1 + scaleAdd, 1 + scaleAdd, 1);
                     }
                 })
                 .call(() => {
-                    // E. LANDING IMPACT (Squash)
-                    // Ensure final position is exact
                     card.setPosition(endPos); 
                     card.angle = 0;
                     
                     tween(card)
-                        .to(0.1, { scale: new Vec3(1.15, 0.85, 1) }) // Squash width-wise
-                        .to(0.1, { scale: new Vec3(1, 1, 1) })      // Recover
+                        .to(0.1, { scale: new Vec3(1.15, 0.85, 1) }) 
+                        .to(0.1, { scale: new Vec3(1, 1, 1) })      
                         .start();
                 })
                 .start();
         });
 
-        // 4. RESTORE STOCK/WASTE
         this.scheduleOnce(() => {
             this.popInNode(this.stockNode, originalStockScale);
             this.popInNode(this.wasteNode, originalWasteScale);
@@ -288,10 +321,12 @@ export class GameManager extends Component {
 
         this.scheduleOnce(() => {
             this._animationComplete = true;
+            if (this._isFirstMovePending) {
+                this.showIntroMessage(); // Launch intro message instead of hand directly
+            }
         }, maxDuration + 0.8);
     }
 
-    // Helper for Stock/Waste entrance
     private popInNode(node: Node, targetScale: Vec3) {
         if(!node) return;
         node.active = true;
@@ -320,17 +355,159 @@ export class GameManager extends Component {
     }
 
     // =========================================================================
-    // 🏆 AUTO WIN: OMNISCIENT SEARCH (The Cascade)
+    // POST-DEAL INTRO MESSAGE LOGIC
+    // =========================================================================
+
+    private showIntroMessage() {
+        if (!this.introNode) {
+            // Fallback: If introNode isn't assigned, just start the hand tutorial immediately
+            if (this._isFirstMovePending) this.showHandTutorial();
+            return;
+        }
+
+        this._isIntroShowing = true;
+        this.introNode.active = true;
+        
+        const op = this.introNode.getComponent(UIOpacity) || this.introNode.addComponent(UIOpacity);
+        op.opacity = 0;
+        tween(op).to(0.3, { opacity: 255 }).start();
+
+        // Listen for user tap anywhere on the intro node
+        this.introNode.on(Node.EventType.TOUCH_END, this.hideIntroMessage, this);
+
+        // Auto-dismiss after 3 seconds
+        this.scheduleOnce(this.hideIntroMessage, 3.0);
+    }
+
+    private hideIntroMessage() {
+        if (!this.introNode || !this._isIntroShowing) return;
+
+        this._isIntroShowing = false;
+        
+        // Cancel the 3-second timer and remove the touch event
+        this.unschedule(this.hideIntroMessage);
+        this.introNode.off(Node.EventType.TOUCH_END, this.hideIntroMessage, this);
+
+        const op = this.introNode.getComponent(UIOpacity);
+        if (op) {
+            tween(op).to(0.3, { opacity: 0 })
+                .call(() => {
+                    this.introNode.active = false;
+                    // Start the hand tutorial right after the message hides
+                    if (this._isFirstMovePending) {
+                        this.showHandTutorial();
+                    }
+                })
+                .start();
+        } else {
+            this.introNode.active = false;
+            if (this._isFirstMovePending) this.showHandTutorial();
+        }
+    }
+
+    // =========================================================================
+    // FIRST MOVE TUTORIAL LOGIC
+    // =========================================================================
+
+    public refreshHandTutorial() {
+        // Only refresh the hand if the cards are done, it's the first move, 
+        // AND the intro message is no longer showing on the screen.
+        if (this._isFirstMovePending && this._animationComplete && !this._isIntroShowing) {
+            this.hideHandTutorial();
+            this.unschedule(this.showHandTutorial);
+            this.scheduleOnce(this.showHandTutorial, 0.1);
+        }
+    }
+
+    private showHandTutorial() {
+        if (!this.handNode || !this._isFirstMovePending) return;
+
+        const bestMove = this.findBestMove();
+        if (bestMove && bestMove.from && this.handNode.parent) {
+            this.handNode.active = true;
+            
+            Tween.stopAllByTarget(this.handNode);
+            
+            const op = this.handNode.getComponent(UIOpacity) || this.handNode.addComponent(UIOpacity);
+            const transform = this.handNode.parent.getComponent(UITransform);
+            if (!transform) return;
+
+            const handOffset = new Vec3(40, -60, 0); 
+            const fromWorldPos = bestMove.from.getWorldPosition();
+            const fromLocalPos = transform.convertToNodeSpaceAR(fromWorldPos).add(handOffset);
+
+            if (bestMove.to) {
+                const toWorldPos = bestMove.to.getWorldPosition();
+                const toLocalPos = transform.convertToNodeSpaceAR(toWorldPos).add(handOffset);
+                
+                op.opacity = 0; 
+                this.handNode.angle = 0;
+                
+                tween(this.handNode)
+                    .repeatForever(
+                        tween()
+                            .call(() => { 
+                                this.handNode.setPosition(fromLocalPos); 
+                                this.handNode.angle = 0;
+                            })
+                            .parallel(
+                                tween(op).to(0.3, { opacity: 255 }),
+                                tween(this.handNode).to(0.3, { scale: new Vec3(1.1, 1.1, 1) }) 
+                            )
+                            .to(0.2, { scale: new Vec3(0.9, 0.9, 1), angle: -5 }, { easing: 'sineOut' })
+                            .to(0.8, { position: toLocalPos }, { easing: 'sineInOut' })
+                            .to(0.2, { scale: new Vec3(1.1, 1.1, 1), angle: 0 }, { easing: 'sineIn' })
+                            .parallel(
+                                tween(op).to(0.3, { opacity: 0 }),
+                                tween(this.handNode).to(0.3, { scale: new Vec3(1, 1, 1) })
+                            )
+                            .delay(0.4) 
+                    )
+                    .start();
+            } else {
+                op.opacity = 0;
+                this.handNode.angle = 0;
+                
+                tween(this.handNode)
+                    .repeatForever(
+                        tween()
+                            .call(() => { this.handNode.setPosition(fromLocalPos); })
+                            .parallel(
+                                tween(op).to(0.3, { opacity: 255 }),
+                                tween(this.handNode).to(0.3, { scale: new Vec3(1.1, 1.1, 1) })
+                            )
+                            .delay(0.2)
+                            .to(0.15, { scale: new Vec3(0.85, 0.85, 1), angle: -8 }, { easing: 'sineOut' })
+                            .to(0.15, { scale: new Vec3(1.1, 1.1, 1), angle: 0 }, { easing: 'sineIn' })
+                            .delay(0.3)
+                            .parallel(
+                                tween(op).to(0.3, { opacity: 0 }),
+                                tween(this.handNode).to(0.3, { scale: new Vec3(1, 1, 1) })
+                            )
+                            .delay(0.4)
+                    )
+                    .start();
+            }
+        }
+    }
+    
+    private hideHandTutorial() {
+        if (this.handNode) {
+            Tween.stopAllByTarget(this.handNode);
+            this.handNode.active = false;
+        }
+    }
+
+    // =========================================================================
+    // AUTO WIN & AI HINT LOGIC 
     // =========================================================================
 
     public onCardRevealed() {
         if (this._isAutoPlaying) return;
 
         this._revealedCount++;
-        console.log(`[GameManager] 🔓 Card Revealed! Progress: ${this._revealedCount} / ${this._totalHiddenCards}`);
 
         if (this._revealedCount >= this._totalHiddenCards) {
-            console.log("[GameManager] 🎉 ALL HIDDEN CARDS REVEALED! Triggering Auto-Win Sequence...");
             this.startAutoWinSequence();
         }
     }
@@ -420,12 +597,7 @@ export class GameManager extends Component {
             .start();
     }
 
-    // =========================================================================
-    // 🧠 AI HINT LOGIC (Preserved from original)
-    // =========================================================================
-
     private showDynamicHint() {
-        // Don't show hints if animation isn't complete
         if (!this._animationComplete) return;
         
         const bestMove = this.findBestMove();
@@ -454,7 +626,6 @@ export class GameManager extends Component {
     private findBestMove(): StrategicMove | null {
         const allMoves: StrategicMove[] = [];
 
-        // 1. SCAN TABLEAU MOVES
         for (let i = 0; i < this.tableauNodes.length; i++) {
             const pile = this.tableauNodes[i];
             const faceUpCards = pile.children.filter(c => c.active && c.name.startsWith("card"));
@@ -488,7 +659,6 @@ export class GameManager extends Component {
             }
         }
 
-        // 2. SCAN WASTE MOVES
         const wasteTop = this.getTopCard(this.wasteNode);
         if (wasteTop) {
             const fTarget = this.checkFoundationMoves(wasteTop).node;
@@ -501,7 +671,6 @@ export class GameManager extends Component {
             }
         }
 
-        // 3. SCAN STOCK MOVES
         const stockCount = this.stockNode.children.filter(c => c.name.startsWith("card") || c.name.includes("faceDown")).length;
         if (stockCount > 0) {
             allMoves.push({ type: 'DrawStock', from: this.stockNode, score: 40 });
@@ -571,7 +740,6 @@ export class GameManager extends Component {
         let count = 0;
         this.foundationNodes.forEach(f => count += f.children.filter(c => c.name.startsWith("card")).length);
         if (count >= 52) {
-            console.log("[GameManager] Manual Win Triggered (52 Cards)");
             this.triggerWinState();
         }
     }
@@ -630,39 +798,42 @@ export class GameManager extends Component {
         if (this.mainNode) this.mainNode.active = false;
         if (this.ctaScreen) this.ctaScreen.active = false;
         if (this.youLostScreen) this.youLostScreen.active = false;
+        if (this.introNode) this.introNode.active = false; 
+        if (this.popupNode) this.popupNode.active = false; 
+        
+        this._movesMade = 0; 
         this._currentMoves = this.maxMoves;
         this.updateMovesLabel();
         if (this.stackOutline) this.stackOutline.clear();
     }
    
     private startSequence() {
-        if (this.introNode) {
-            this.introNode.active = true;
-            this.scheduleOnce(() => {
-                tween(this.introNode.getComponent(UIOpacity) || this.introNode.addComponent(UIOpacity))
-                    .to(0.5, { opacity: 0 })
-                    .call(() => { 
-                        this.introNode.active = false; 
-                        this.startGameLogic(); 
-                    })
-                    .start();
-            }, 1.0);
-        } else { 
-            this.startGameLogic(); 
-        }
+        // Start the game logic right away instead of using the old intro sequence
+        this.startGameLogic(); 
     }
    
     private showCTA() {
         if (!this.ctaScreen || this.ctaScreen.active) return;
+        
         this.ctaScreen.active = true;
         const op = this.ctaScreen.getComponent(UIOpacity) || this.ctaScreen.addComponent(UIOpacity);
         op.opacity = 0;
+        
         tween(op).to(0.3, { opacity: 255 }).start();
+        
         this.ctaScreen.setScale(new Vec3(0, 0, 1));
+        
         tween(this.ctaScreen)
             .to(0.5, { scale: new Vec3(1.15, 1.15, 1) }, { easing: 'backOut' })
             .to(0.3, { scale: new Vec3(1, 1, 1) }, { easing: 'sineInOut' })
-            .call(() => this.playCTAPulse())
+            .call(() => {
+                this.playCTAPulse();
+                
+                // NEW: Play the confetti animation!
+                if (this.confettiParticle) {
+                    this.confettiParticle.resetSystem();
+                }
+            })
             .start();
     }
    
