@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Vec3, tween, UIOpacity, isValid, AudioSource, AudioClip, UITransform, Label, CCInteger, Tween, input, Input, ParticleSystem2D } from 'cc';
+import { _decorator, Component, Node, Vec3, tween, UIOpacity, isValid, AudioSource, AudioClip, UITransform, Label, CCInteger, Tween, input, Input, Prefab, instantiate, Color, math, view, Sprite } from 'cc';
 import { StackOutline } from './stackOutline'; 
 
 const { ccclass, property } = _decorator;
@@ -51,7 +51,8 @@ export class GameManager extends Component {
     @property({ type: AudioClip }) public bgmClip: AudioClip = null!;
     @property({ type: AudioClip }) public cardDropSound: AudioClip = null!;
 
-    @property({ type: ParticleSystem2D }) public confettiParticle: ParticleSystem2D = null!;
+    @property({ type: Prefab }) public confettiPrefab: Prefab = null!;
+    @property({ type: Node }) public confettiContainer: Node = null!;
 
     // --- MOVES SYSTEM ---
     @property({ type: Label }) public movesLabel: Label = null!;
@@ -772,11 +773,14 @@ export class GameManager extends Component {
         this.youLostScreen.active = true;
         const op = this.youLostScreen.getComponent(UIOpacity) || this.youLostScreen.addComponent(UIOpacity);
         op.opacity = 0;
-        tween(op).to(0.5, { opacity: 255 }).start();
+        tween(op).to(0.3, { opacity: 255 }).start();
         this.youLostScreen.setScale(new Vec3(0, 0, 1));
         tween(this.youLostScreen)
-            .to(0.5, { scale: new Vec3(1.1, 1.1, 1) }, { easing: 'backOut' })
+            .to(0.5, { scale: new Vec3(1.15, 1.15, 1) }, { easing: 'backOut' })
             .to(0.3, { scale: new Vec3(1, 1, 1) }, { easing: 'sineInOut' })
+            .call(() => {
+                this.playYouLostPulse();
+            })
             .start();
     }
     
@@ -827,22 +831,203 @@ export class GameManager extends Component {
             .to(0.5, { scale: new Vec3(1.15, 1.15, 1) }, { easing: 'backOut' })
             .to(0.3, { scale: new Vec3(1, 1, 1) }, { easing: 'sineInOut' })
             .call(() => {
+                // Trigger the looping pulse which now includes the particles
                 this.playCTAPulse();
-                
-                // NEW: Play the confetti animation!
-                if (this.confettiParticle) {
-                    this.confettiParticle.resetSystem();
-                }
             })
             .start();
     }
    
     private playCTAPulse() {
         if (!isValid(this.ctaScreen)) return;
+        
+        // 1. Loop the UI scaling
         tween(this.ctaScreen).repeatForever(
             tween()
                 .to(0.8, { scale: new Vec3(1.05, 1.05, 1) }, { easing: 'sineInOut' })
                 .to(0.8, { scale: new Vec3(1, 1, 1) }, { easing: 'sineInOut' })
         ).start();
+
+        // 2. Play first burst immediately
+        this.playEpicConfetti();
+        
+        // 3. Loop the confetti continuously while the CTA screen is active
+        this.schedule(() => {
+            if (this.ctaScreen.active) {
+                this.playEpicConfetti();
+            }
+        }, 1.6);
+    }
+
+    private playYouLostPulse() {
+        if (!isValid(this.youLostScreen)) return;
+        
+        // 1. Loop the UI scaling (Confetti calls removed from here)
+        tween(this.youLostScreen).repeatForever(
+            tween()
+                .to(0.8, { scale: new Vec3(1.05, 1.05, 1) }, { easing: 'sineInOut' })
+                .to(0.8, { scale: new Vec3(1, 1, 1) }, { easing: 'sineInOut' })
+        ).start();
+    }
+
+    private playEpicConfetti() {
+        const elegantColors = [
+            new Color(255, 215, 0, 255),   // Magical Gold
+            new Color(100, 255, 150, 255), // Forest Glow Green
+            new Color(255, 255, 255, 255)  // Pure White
+        ];
+
+        // 1. THE BURST: An immediate, energetic magical explosion from the pedestal
+        this.createMysticBurst(0, -150, 80, elegantColors);
+
+        // 2. THE CASCADE: The elegant, randomized falling leaves that sustain the joy
+        this.scheduleOnce(() => {
+            this.createEnchantedCascade(elegantColors, 40);
+        }, 0.3); // Starts just as the burst slows down
+        
+        this.scheduleOnce(() => {
+            this.createEnchantedCascade(elegantColors, 35);
+        }, 1.2);
+        
+        this.scheduleOnce(() => {
+            this.createEnchantedCascade(elegantColors, 35);
+        }, 2.4);
+    }
+
+    private createMysticBurst(startX: number, startY: number, count: number, colors: Color[]) {
+        if (!this.confettiPrefab || !this.confettiContainer) return;
+
+        for (let i = 0; i < count; i++) {
+            const piece = instantiate(this.confettiPrefab);
+            this.confettiContainer.addChild(piece);
+
+            const sprite = piece.getComponent(Sprite);
+            const uiOpacity = piece.getComponent(UIOpacity) || piece.addComponent(UIOpacity);
+            uiOpacity.opacity = 255;
+
+            if (sprite) sprite.color = colors[Math.floor(Math.random() * colors.length)];
+            
+            // Slightly smaller scale for the burst so it feels like dense energy
+            const baseScale = Math.random() * 0.3 + 0.15;
+            piece.setScale(new Vec3(baseScale, baseScale, 1));
+            piece.setPosition(startX, startY, 0);
+
+            // 360-degree explosive math
+            const angle = Math.random() * Math.PI * 2; 
+            const force = Math.random() * 700 + 300; // High speed
+            
+            const burstTargetX = startX + (Math.cos(angle) * force);
+            const burstTargetY = startY + (Math.sin(angle) * force);
+
+            const burstDuration = Math.random() * 0.4 + 0.2; // Very fast outwards
+            const floatDuration = Math.random() * 1.5 + 1.0; // Hangs in the air
+
+            const animState = { t: 0 };
+            
+            tween(animState)
+                // Phase 1: The Snappy Explosion
+                .to(burstDuration, { t: 1 }, {
+                    easing: 'expoOut', // Starts incredibly fast, brakes hard
+                    onUpdate: (target: {t: number}) => {
+                        const progress = target.t;
+                        const currentX = math.lerp(startX, burstTargetX, progress);
+                        const currentY = math.lerp(startY, burstTargetY, progress);
+                        
+                        piece.setPosition(currentX, currentY, 0);
+                        piece.angle = progress * 720; // Violent spin
+                    }
+                })
+                // Phase 2: The Magic Dissipates
+                .call(() => { animState.t = 0; })
+                .to(floatDuration, { t: 1 }, {
+                    easing: 'sineOut',
+                    onUpdate: (target: {t: number}) => {
+                        const progress = target.t;
+                        
+                        // Drift down very slightly like embers
+                        const currentY = math.lerp(burstTargetY, burstTargetY - 80, progress);
+                        piece.setPosition(burstTargetX, currentY, 0);
+                        
+                        // Fade out into the background
+                        uiOpacity.opacity = math.lerp(255, 0, progress);
+                        piece.angle += 2;
+                    }
+                })
+                .call(() => { piece.destroy(); })
+                .start();
+        }
+    }
+
+    private createEnchantedCascade(colors: Color[], count: number) {
+        if (!this.confettiPrefab || !this.confettiContainer) return;
+
+        const screenSize = view.getVisibleSize();
+        
+        for (let i = 0; i < count; i++) {
+            const piece = instantiate(this.confettiPrefab);
+            this.confettiContainer.addChild(piece);
+
+            const sprite = piece.getComponent(Sprite);
+            const uiOpacity = piece.getComponent(UIOpacity) || piece.addComponent(UIOpacity);
+            
+            if (sprite) sprite.color = colors[Math.floor(Math.random() * colors.length)];
+            
+            // RANDOMNESS 1: Stagger the starting heights so they don't drop in a perfect flat line
+            const startX = (Math.random() * screenSize.width) - (screenSize.width / 2);
+            const startY = (screenSize.height / 2) + 100 + (Math.random() * 300); 
+            piece.setPosition(startX, startY, 0);
+
+            // RANDOMNESS 2: Extreme scale variations for "Depth" (some close to camera, some far)
+            const isForeground = Math.random() > 0.85; // 15% chance to be a massive foreground piece
+            const baseScale = isForeground ? (Math.random() * 0.5 + 0.4) : (Math.random() * 0.2 + 0.1);
+            piece.setScale(new Vec3(baseScale, baseScale, 1));
+            
+            // Dim the background ones slightly to enhance the 3D parallax feel
+            const maxOpacity = isForeground ? 255 : 160;
+
+            // RANDOMNESS 3: Chaotic physics variables
+            const fallSpeed = Math.random() * 4.0 + 2.5; 
+            const swayWidth = Math.random() * 200 + 50;  
+            const swaySpeed = Math.random() * 1.5 + 0.5;     
+            const turbulence = Math.random() * 4 + 2; // A secondary, faster wind pattern
+            
+            const tumbleSpeed = Math.random() * 4 + 1; 
+            const spinDirection = Math.random() > 0.5 ? 1 : -1;
+            const spinSpeed = (Math.random() * 3 + 0.5) * spinDirection; // Random direction and speed
+
+            const animState = { t: 0 };
+            
+            tween(animState)
+                .to(fallSpeed, { t: 1 }, {
+                    onUpdate: (target: {t: number}) => {
+                        const progress = target.t;
+                        
+                        const currentY = math.lerp(startY, -screenSize.height / 2 - 150, progress);
+                        
+                        // RANDOMNESS 4: Double sine-wave for organic, unpredictable fluttering
+                        const primarySway = Math.sin(progress * Math.PI * swaySpeed) * swayWidth;
+                        const erraticFlutter = Math.cos(progress * Math.PI * turbulence) * (swayWidth * 0.25);
+                        
+                        piece.setPosition(startX + primarySway + erraticFlutter, currentY, 0);
+
+                        // 3D Tumble
+                        const scaleFlip = Math.cos(progress * Math.PI * tumbleSpeed);
+                        piece.setScale(new Vec3(scaleFlip * baseScale, baseScale, 1));
+                        
+                        // Chaotic Spin
+                        piece.angle += spinSpeed;
+
+                        // Fade logic adapting to the random maxOpacity
+                        if (progress < 0.1) {
+                            uiOpacity.opacity = math.lerp(0, maxOpacity, progress * 10);
+                        } else if (progress > 0.8) {
+                            uiOpacity.opacity = math.lerp(maxOpacity, 0, (progress - 0.8) / 0.2);
+                        } else {
+                            uiOpacity.opacity = maxOpacity;
+                        }
+                    }
+                })
+                .call(() => { piece.destroy(); })
+                .start();
+        }
     }
 }

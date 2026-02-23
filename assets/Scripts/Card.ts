@@ -139,7 +139,6 @@ export class CardLogic extends Component {
             const overlayTransform = this.gameManager.globalOverlay.getComponent(UITransform);
             
             // 🌟 UX IMPROVEMENT: VISUAL LIFT (Y-OFFSET)
-            // Add +80 to Y so the card appears ABOVE the user's finger (not covered by thumb)
             const fingerOffset = new Vec3(0, 80, 0); 
             
             const worldPos = new Vec3(uiLoc.x, uiLoc.y, 0).add(this._dragOffset).add(fingerOffset);
@@ -165,7 +164,7 @@ export class CardLogic extends Component {
                 const targetPos = prevCard.position.clone();
                 targetPos.y -= 45; 
 
-                const smoothX = math.lerp(currentCard.position.x, targetPos.x, 0.45); // Slightly tighter follow
+                const smoothX = math.lerp(currentCard.position.x, targetPos.x, 0.45); 
                 const smoothY = math.lerp(currentCard.position.y, targetPos.y, 0.45);
 
                 currentCard.setPosition(smoothX, smoothY, 0);
@@ -173,7 +172,6 @@ export class CardLogic extends Component {
             }
 
             // 🌟 UX IMPROVEMENT: PREDICTIVE HIGHLIGHTING
-            // Check what we are hovering over every frame to give feedback
             this.checkAndHighlightTarget();
         }
     }
@@ -183,7 +181,6 @@ export class CardLogic extends Component {
         this.node.off(Node.EventType.TOUCH_END, this.onDragEnd, this);
         this.node.off(Node.EventType.TOUCH_CANCEL, this.onDragEnd, this);
         this._isDragging = false;
-        
         
         // 🌟 CLEAR HIGHLIGHTS
         if (this._activeHighlightTarget) {
@@ -204,23 +201,20 @@ export class CardLogic extends Component {
         this.attemptDrop();
     }
 
-    // 🌟 UX: Highlight the valid target under the dragged card
     checkAndHighlightTarget() {
         const headCard = this._draggedCards[0];
         const headTrans = headCard.getComponent(UITransform);
-        const headWorldPos = headCard.getWorldPosition(); // Center of card
+        const headWorldPos = headCard.getWorldPosition(); 
 
         const targets = [...this.gameManager.tableauNodes, ...this.gameManager.foundationNodes];
         let foundTarget: CardLogic | null = null;
 
-        // Find closest valid target
-        let minDist = 200; // Detection radius
+        let minDist = 200; 
 
         for (const targetNode of targets) {
             const targetLogic = targetNode.getComponent(CardLogic);
             if (!targetLogic || targetLogic === this) continue;
             
-            // Get the "Hotspot" of the target (Center of the last card or placeholder)
             let targetHotspot = targetNode.getWorldPosition();
             const targetChildren = targetLogic.node.children.filter(c => c.active && c.name.startsWith("card"));
             if (targetChildren.length > 0) {
@@ -230,7 +224,6 @@ export class CardLogic extends Component {
             const dist = Vec3.distance(headWorldPos, targetHotspot);
 
             if (dist < minDist) {
-                // Only highlight if it's a VALID move
                 if (this.checkSpecificDropValidity(headCard, targetLogic)) {
                     minDist = dist;
                     foundTarget = targetLogic;
@@ -238,25 +231,16 @@ export class CardLogic extends Component {
             }
         }
 
-        // State Change Logic
         if (foundTarget !== this._activeHighlightTarget) {
-            // Unhighlight old
             if (this._activeHighlightTarget) this._activeHighlightTarget.setHighlightState(false);
-            
-            // Highlight new
             if (foundTarget) foundTarget.setHighlightState(true);
-            
             this._activeHighlightTarget = foundTarget;
         }
     }
 
-    // 🌟 UX: Visual Feedback on the Target Pile
-    // 🌟 UX: Visual Feedback on the Target Pile
     public setHighlightState(isActive: boolean) {
-        // 1. Find the best target to animate (Top card or Placeholder)
         let targetVisual: Node | null = null;
 
-        // Filter specifically for "Card" nodes that are active, ignoring the placeholder
         const activeCards = this.node.children.filter(c => 
             c.active && 
             c !== this.placeholderNode && 
@@ -264,28 +248,22 @@ export class CardLogic extends Component {
         );
 
         if (activeCards.length > 0) {
-            // If there are cards, highlight the top one
             targetVisual = activeCards[activeCards.length - 1];
         } else {
-            // If empty, highlight the placeholder (ONLY if it exists)
             if (this.placeholderNode && isValid(this.placeholderNode)) {
                 targetVisual = this.placeholderNode;
             }
         }
 
-        // 2. Safety Check: If no target was found (e.g., empty pile & unassigned placeholder), exit.
         if (!targetVisual) return;
 
-        // 3. Execute Animation
         Tween.stopAllByTarget(targetVisual);
 
         if (isActive) {
-            // "Pop" up to greet the incoming card
             tween(targetVisual)
                 .to(0.15, { scale: new Vec3(1.15, 1.15, 1) }, { easing: 'sineOut' })
                 .start();
         } else {
-            // Return to normal
             tween(targetVisual)
                 .to(0.15, { scale: new Vec3(1, 1, 1) }, { easing: 'sineOut' })
                 .start();
@@ -299,12 +277,9 @@ export class CardLogic extends Component {
         const overlayTrans = overlay.getComponent(UITransform);
         this._originalParent = this.node;
         
-        // 🌟 FIX PHASE 1: Capture ALL data BEFORE moving anything!
-        // If we move inside the loop, indices of remaining cards shift, causing incorrect data.
         this._originalPositions = this._draggedCards.map(c => c.getPosition().clone());
         this._originalSiblingIndices = this._draggedCards.map(c => c.getSiblingIndex());
 
-        // 🌟 FIX PHASE 2: Now it is safe to move them to the overlay
         this._draggedCards.forEach((card, index) => {
             const startWorldScale = card.getWorldScale().clone();   
 
@@ -315,7 +290,6 @@ export class CardLogic extends Component {
             card.setPosition(localOverlayPos);
             card.setWorldScale(startWorldScale); 
             
-            // Pop effect on pickup
             const currentScale = card.getScale();
             tween(card)
                 .to(0.1, { scale: new Vec3(currentScale.x * 1.2, currentScale.y * 1.2, 1) }, { easing: 'backOut' })
@@ -334,15 +308,10 @@ export class CardLogic extends Component {
         let bestTarget: CardLogic | null = null;
         let closestDist = 1000;
 
-        // 🌟 UX IMPROVEMENT: PROXIMITY CHECK (FORGIVING HITBOX)
-        // Instead of strict rectangle intersection, check distance to the "heart" of the target.
-        // This allows dropping "near" the pile and having it snap in.
-        
         for (const targetNode of targets) {
             const targetLogic = targetNode.getComponent(CardLogic);
             if (!targetLogic || targetLogic === this) continue;
 
-            // Determine drop point (Last card or placeholder)
             let targetDropPoint = targetNode.getWorldPosition();
             const children = targetLogic.node.children.filter(c => c.active && c.name.startsWith("card"));
             if (children.length > 0) {
@@ -351,7 +320,6 @@ export class CardLogic extends Component {
 
             const dist = Vec3.distance(headWorldPos, targetDropPoint);
 
-            // Distance threshold (approx 1 card width)
             if (dist < 150) { 
                 if (dist < closestDist) {
                     if (this.checkSpecificDropValidity(headCard, targetLogic)) {
@@ -369,6 +337,9 @@ export class CardLogic extends Component {
                 op.opacity = 255;
             });
             this.executeStackMove(this._draggedCards, bestTarget);
+            
+            // 🌟 FIX: Clear reference immediately to prevent race conditions on subsequent clicks
+            this._draggedCards = []; 
         } else {
             this.returnCardsToOriginal();
         }
@@ -410,12 +381,26 @@ export class CardLogic extends Component {
         const overlayTrans = this.gameManager.globalOverlay.getComponent(UITransform);
         const parentTrans = this._originalParent.getComponent(UITransform);
 
-        // Counter to track when animations are done
-        let completedCount = 0;
-        const totalCards = this._draggedCards.length;
+        // 🌟 FIX 1: Create local copies of the state before it gets overwritten
+        const cardsToReturn = [...this._draggedCards];
+        const originalPositions = [...this._originalPositions];
+        const originalIndices = [...this._originalSiblingIndices];
+        const originalParent = this._originalParent;
 
-        this._draggedCards.forEach((card, index) => {
-            const originalPos = this._originalPositions[index];
+        // 🌟 FIX 2: Clear active state immediately & lock interactions on this pile
+        this._draggedCards = [];
+        this._isAnimating = true; 
+
+        let completedCount = 0;
+        const totalCards = cardsToReturn.length;
+
+        if (totalCards === 0) {
+            this._isAnimating = false;
+            return;
+        }
+
+        cardsToReturn.forEach((card, index) => {
+            const originalPos = originalPositions[index];
             
             const worldDest = parentTrans.convertToWorldSpaceAR(originalPos);
             const overlayDest = overlayTrans.convertToNodeSpaceAR(worldDest);
@@ -429,10 +414,9 @@ export class CardLogic extends Component {
                 .call(() => {
                     completedCount++;
                     
-                    // 🌟 FIX: Only restore the stack when the LAST card arrives.
-                    // This prevents race conditions that reverse the order.
                     if (completedCount === totalCards) {
-                        this.finalizeReturn();
+                        // 🌟 FIX 3: Pass local variables to finalize to prevent reference bugs
+                        this.finalizeReturn(cardsToReturn, originalPositions, originalIndices, originalParent);
                     }
                 })
                 .start();
@@ -440,24 +424,26 @@ export class CardLogic extends Component {
     }
 
     // Helper to restore order safely
-    finalizeReturn() {
-        this._draggedCards.forEach((card, index) => {
-            // 1. Put back in parent
-            card.setParent(this._originalParent);
-            
-            // 2. Reset Position
-            card.setPosition(this._originalPositions[index]);
-            
-            // 3. Restore strict order
-            // Since we captured the indices correctly now, this will restore the exact order.
-            card.setSiblingIndex(this._originalSiblingIndices[index]);
-            
-            // 4. Ensure opacity is back
-            const op = card.getComponent(UIOpacity) || card.addComponent(UIOpacity);
-            op.opacity = 255;
+    finalizeReturn(cardsToReturn: Node[], originalPositions: Vec3[], originalIndices: number[], originalParent: Node) {
+        cardsToReturn.forEach((card, index) => {
+            if (isValid(card) && isValid(originalParent)) {
+                // 1. Put back in parent
+                card.setParent(originalParent);
+                
+                // 2. Reset Position
+                card.setPosition(originalPositions[index]);
+                
+                // 3. Restore strict order
+                card.setSiblingIndex(originalIndices[index]);
+                
+                // 4. Ensure opacity is back
+                const op = card.getComponent(UIOpacity) || card.addComponent(UIOpacity);
+                op.opacity = 255;
+            }
         });
 
-        this._draggedCards = [];
+        // 🌟 FIX 4: Unblock interaction now that cards are safely back
+        this._isAnimating = false; 
     }
 
     getCardUnderTouch(uiLoc: Vec2): Node | null {
@@ -657,7 +643,7 @@ export class CardLogic extends Component {
         if (this.gameManager) this.gameManager.addValidMove(this.node); 
 
         // =========================================================
-        // 1. STOCK DRAW LOGIC (Unchanged)
+        // 1. STOCK DRAW LOGIC 
         // =========================================================
         if (this.holderType === HolderType.STOCK) {
             let completedCount = 0;
@@ -723,7 +709,7 @@ export class CardLogic extends Component {
         }
 
         // =========================================================
-        // 2. STANDARD MOVE LOGIC (Fixed Reversal Issue)
+        // 2. STANDARD MOVE LOGIC
         // =========================================================
         const startWorldPositions = nodesToMove.map(node => node.getWorldPosition().clone());
         const startWorldScales = nodesToMove.map(node => node.getWorldScale().clone());
@@ -752,7 +738,6 @@ export class CardLogic extends Component {
             op.opacity = 255;
         });
 
-        // 🌟 Track completions to fix ordering bugs
         let completedCount = 0;
         const totalCards = nodesToMove.length;
 
@@ -792,10 +777,8 @@ export class CardLogic extends Component {
 
                         completedCount++;
 
-                        // 🌟 FIX: Wait for ALL cards to land, then enforce order
                         if (completedCount === totalCards) {
                             
-                            // Iterate through the original sorted list and force them to the top
                             nodesToMove.forEach(n => {
                                 if (n.parent) n.setSiblingIndex(n.parent.children.length - 1);
                             });
