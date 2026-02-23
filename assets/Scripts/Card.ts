@@ -34,9 +34,6 @@ export class CardLogic extends Component {
     public emptyStockVisual: Node = null!;
 
     @property(SpriteFrame)
-    public wrongClickSprite: SpriteFrame = null!;
-
-    @property(SpriteFrame)
     public ringSprite: SpriteFrame = null!;
 
     @property(SpriteFrame)
@@ -83,6 +80,8 @@ export class CardLogic extends Component {
     // =========================================================================
 
     onTouchStart(event: EventTouch) {
+        if (this.gameManager && !this.gameManager.isInteractable) return;
+
         if (this.gameManager) this.gameManager.resetIdleTimer();
         if (this._isAnimating) return;
 
@@ -466,7 +465,7 @@ export class CardLogic extends Component {
     handleStandardClick(event: EventTouch) {
         if (this.holderType === HolderType.FOUNDATION) {
             this.playSFX(this.errorSound);
-            this.showWrongFeedback(event, null);
+            this.shakeCard(this.getCardUnderTouch(event.getUILocation())); 
             return;
         }
 
@@ -514,7 +513,7 @@ export class CardLogic extends Component {
         }
 
         this.playSFX(this.errorSound);
-        this.showWrongFeedback(event, this.getCardUnderTouch(event.getUILocation()));
+        this.shakeCard(this.getCardUnderTouch(event.getUILocation())); 
     }
 
     private handleStockClick() {
@@ -918,58 +917,18 @@ export class CardLogic extends Component {
         }
     }
 
-    private showWrongFeedback(event: EventTouch, targetNode: Node | null) {
-        let targetParent = this.gameManager?.globalOverlay || this.gameManager?.node || this.node.parent || this.node;
-        const touchPos = event.getUILocation();
-        const worldPos = new Vec3(touchPos.x, touchPos.y, 0);
-        const parentTrans = targetParent.getComponent(UITransform);
-        const localPos = parentTrans ? parentTrans.convertToNodeSpaceAR(worldPos) : worldPos;
+    private shakeCard(targetNode: Node | null) {
+        if (!targetNode || !isValid(targetNode)) return;
 
-        const feedbackNode = new Node('WrongClickFeedback');
-        targetParent.addChild(feedbackNode);
-        feedbackNode.setPosition(localPos);
-        feedbackNode.setSiblingIndex(999);
-
-        const sprite = feedbackNode.addComponent(Sprite);
-        sprite.spriteFrame = this.wrongClickSprite;
-        sprite.sizeMode = Sprite.SizeMode.RAW;
-
-        const uiOpacity = feedbackNode.addComponent(UIOpacity);
-        uiOpacity.opacity = 0; 
-        feedbackNode.addComponent(UITransform).setContentSize(80, 80);
-
-        feedbackNode.angle = (Math.random() * 40) - 20;
-        feedbackNode.setScale(new Vec3(0.5, 0.5, 1));
-
-        tween(feedbackNode)
-            .to(0.15, { scale: new Vec3(1.2, 1.2, 1) }, { easing: 'backOut' })
-            .delay(0.2)
-            .parallel(
-                tween().by(0.4, { position: new Vec3(0, 40, 0) }, { easing: 'sineOut' }),
-                tween().to(0.4, { scale: new Vec3(0.8, 0.8, 1) })
-            )
-            .call(() => { if (isValid(feedbackNode)) feedbackNode.destroy(); })
+        Tween.stopAllByTarget(targetNode);
+        
+        tween(targetNode)
+            .to(0.05, { angle: 12 })
+            .to(0.05, { angle: -12 })
+            .to(0.05, { angle: 12 })
+            .to(0.05, { angle: -12 })
+            .to(0.05, { angle: 0 }) 
             .start();
-
-        tween(uiOpacity).to(0.1, { opacity: 255 }).delay(0.25).to(0.4, { opacity: 0 }).start();
-
-        if (targetNode && isValid(targetNode) && targetNode !== this.node) {
-            const isCard = targetNode.name.startsWith("card");
-            const isFaceDown = targetNode.name.includes("faceDown");
-
-            if (isCard && !isFaceDown) {
-                Tween.stopAllByTarget(targetNode);
-                let baseAngle = targetNode.angle;
-                if (Math.abs(baseAngle) < 15) { baseAngle = 0; targetNode.angle = 0; }
-
-                tween(targetNode)
-                    .to(0.05, { angle: baseAngle + 10 }).to(0.1, { angle: baseAngle - 10 })  
-                    .to(0.1, { angle: baseAngle + 6 }).to(0.1, { angle: baseAngle - 6 })  
-                    .to(0.05, { angle: baseAngle })
-                    .call(() => { if (targetNode && isValid(targetNode)) targetNode.angle = baseAngle; })
-                    .start();
-            }
-        }
     }
 
     private playSFX(clip: AudioClip) {

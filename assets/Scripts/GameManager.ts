@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Vec3, tween, UIOpacity, isValid, AudioSource, AudioClip, UITransform, Label, CCInteger, Tween, input, Input, Prefab, instantiate, Color, math, view, Sprite } from 'cc';
+import { _decorator, Component, Node, Vec3, tween, UIOpacity, isValid, AudioSource, AudioClip, UITransform, Label, Tween, Prefab, instantiate, Color, math, view, Sprite, Widget } from 'cc';
 import { StackOutline } from './stackOutline'; 
 
 const { ccclass, property } = _decorator;
@@ -42,21 +42,17 @@ export class GameManager extends Component {
 
     // --- UI REFERENCES ---
     @property(Node) public introNode: Node = null!; // Now used for the post-deal message
-    @property(Node) public handNode: Node = null!;
-    @property(Node) public popupNode: Node = null!; 
+    @property(Node) public handNode: Node = null!; 
     @property(Node) public mainNode: Node = null!;
     @property(Node) public ctaScreen: Node = null!;       
-    @property(Node) public youLostScreen: Node = null!;   
     @property(Node) public globalOverlay: Node = null!;
     @property({ type: AudioClip }) public bgmClip: AudioClip = null!;
     @property({ type: AudioClip }) public cardDropSound: AudioClip = null!;
-
+    @property(Node) public timePopup: Node = null!; 
     @property({ type: Prefab }) public confettiPrefab: Prefab = null!;
     @property({ type: Node }) public confettiContainer: Node = null!;
+    @property public popupDelay: number = 30.0; 
 
-    // --- MOVES SYSTEM ---
-    @property({ type: Label }) public movesLabel: Label = null!;
-    @property({ type: CCInteger }) public maxMoves: number = 50;
 
     // --- PILE REFERENCES ---
     @property({ type: [Node] }) public tableauNodes: Node[] = [];
@@ -69,19 +65,17 @@ export class GameManager extends Component {
     @property public idleHintDelay: number = 5.0;
 
     // --- INTERNAL STATE ---
-    private _movesMade: number = 0; 
     private _isFirstMovePending: boolean = true; 
-    private _isIntroShowing: boolean = false; // Tracks if the intro message is currently active
+    private _isIntroShowing: boolean = false;
     private _audioSource: AudioSource = null!;
     private _gameWon: boolean = false;
-    private _gameOver: boolean = false; 
     private _isAutoPlaying: boolean = false; 
     private _idleTimer: number = 0;
     private _isHintActive: boolean = false;
-    private _currentMoves: number = 0;   
     private _totalHiddenCards: number = 21; 
     private _revealedCount: number = 0;
     private _animationComplete: boolean = false; 
+    private _isTimePopupShowing: boolean = false; 
 
     onLoad() {
         this.initBGM();
@@ -90,7 +84,7 @@ export class GameManager extends Component {
     }
 
     update(dt: number) {
-        if (!this._gameWon && !this._gameOver && !this._isHintActive && !this._isAutoPlaying && 
+        if (!this._gameWon && !this._isHintActive && !this._isAutoPlaying && 
             this.mainNode.active && this._animationComplete) {
             
             if (this._isFirstMovePending) return;
@@ -108,8 +102,16 @@ export class GameManager extends Component {
         this.hideDynamicHint();
     }
 
+    public get isInteractable(): boolean {
+        return this._animationComplete && 
+               !this._isIntroShowing && 
+               !this._isTimePopupShowing &&
+               !this._gameWon && 
+               !this._isAutoPlaying;
+    }
+
     public addValidMove(clickedNode: Node) {
-        if (this._gameWon || this._gameOver || this._isAutoPlaying) return;
+        if (this._gameWon || this._isAutoPlaying) return;
 
         if (this._isFirstMovePending) {
             this._isFirstMovePending = false;
@@ -119,63 +121,10 @@ export class GameManager extends Component {
         this.resetIdleTimer();
         this.ensureAudioPlays();
 
-        this._currentMoves--;
-        this.updateMovesLabel();
-        this._movesMade++;
-        if (this._movesMade === 5) {
-            this.showPopup();
-        }
-
-        if (this._currentMoves <= 0) {
-            this.triggerLoseState();
-            return;
-        }
-
+        // Check for win condition right away
         this.checkFoundationWinCondition(); 
     }
 
-    // =========================================================================
-    // 5-MOVE POPUP LOGIC
-    // =========================================================================
-
-    private showPopup() {
-        if (!this.popupNode) return;
-        
-        this.popupNode.active = true;
-        
-        const op = this.popupNode.getComponent(UIOpacity) || this.popupNode.addComponent(UIOpacity);
-        op.opacity = 0;
-        
-        this.popupNode.setScale(new Vec3(0.5, 0.5, 1));
-        
-        tween(op).to(0.3, { opacity: 255 }).start();
-        
-        tween(this.popupNode)
-            .to(0.4, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' })
-            .start();
-
-        // NEW: Listen globally for ANY touch on the screen
-        input.on(Input.EventType.TOUCH_START, this.hidePopup, this);
-    }
-
-    private hidePopup() {
-        if (!this.popupNode || !this.popupNode.active) return;
-
-        // NEW: Remove the global listener immediately so it doesn't trigger multiple times
-        input.off(Input.EventType.TOUCH_START, this.hidePopup, this);
-
-        const op = this.popupNode.getComponent(UIOpacity);
-        if (op) {
-            tween(op).to(0.2, { opacity: 0 }).start();
-        }
-        
-        tween(this.popupNode)
-            .to(0.2, { scale: new Vec3(0.8, 0.8, 1) }, { easing: 'backIn' })
-            .call(() => {
-                this.popupNode.active = false;
-            })
-            .start();
-    }
 
     // =========================================================================
     // INITIAL CARD DROP ANIMATION
@@ -325,7 +274,8 @@ export class GameManager extends Component {
             if (this._isFirstMovePending) {
                 this.showIntroMessage(); // Launch intro message instead of hand directly
             }
-        }, maxDuration + 0.8);
+            this.scheduleOnce(this.showTimePopup, this.popupDelay);
+        }, maxDuration + 0.2);
     }
 
     private popInNode(node: Node, targetScale: Vec3) {
@@ -353,6 +303,52 @@ export class GameManager extends Component {
                 opacity.opacity = 255;
             }
         });
+    }
+
+
+    // =========================================================================
+    // 30-SECOND POPUP LOGIC
+    // =========================================================================
+
+    private showTimePopup() {
+        // Don't show if the node isn't assigned or the player already won
+        if (!this.timePopup || this._gameWon) return;
+
+        this._isTimePopupShowing = true;
+        this.timePopup.active = true;
+        
+        // Fade it in smoothly
+        const op = this.timePopup.getComponent(UIOpacity) || this.timePopup.addComponent(UIOpacity);
+        op.opacity = 0;
+        tween(op).to(0.3, { opacity: 255 }).start();
+
+        // Listen for a tap anywhere on the popup to dismiss it early
+        this.timePopup.on(Node.EventType.TOUCH_END, this.hideTimePopup, this);
+
+        // Auto-dismiss after 3 seconds if the user doesn't click it
+        this.scheduleOnce(this.hideTimePopup, 3.0);
+    }
+
+    private hideTimePopup() {
+        if (!this.timePopup || !this._isTimePopupShowing) return;
+
+        this._isTimePopupShowing = false;
+        
+        // Cancel the 3-second auto-timer and remove the touch event
+        this.unschedule(this.hideTimePopup);
+        this.timePopup.off(Node.EventType.TOUCH_END, this.hideTimePopup, this);
+
+        // Fade it out smoothly
+        const op = this.timePopup.getComponent(UIOpacity);
+        if (op) {
+            tween(op).to(0.3, { opacity: 0 })
+                .call(() => {
+                    this.timePopup.active = false;
+                })
+                .start();
+        } else {
+            this.timePopup.active = false;
+        }
     }
 
     // =========================================================================
@@ -737,7 +733,7 @@ export class GameManager extends Component {
 
     // --- HELPER METHODS ---
     private checkFoundationWinCondition() {
-        if (this._gameWon || this._gameOver || this._isAutoPlaying) return;
+        if (this._gameWon || this._isAutoPlaying) return;
         let count = 0;
         this.foundationNodes.forEach(f => count += f.children.filter(c => c.name.startsWith("card")).length);
         if (count >= 52) {
@@ -757,33 +753,6 @@ export class GameManager extends Component {
         return cards.length > 0 ? cards[cards.length - 1] : null;
     }
 
-    private updateMovesLabel() {
-        if (this.movesLabel) this.movesLabel.string = `${this._currentMoves}`;
-    }
-
-    private triggerLoseState() {
-        if (this._gameWon || this._gameOver) return;
-        this._gameOver = true;
-        this.hideDynamicHint();
-        this.scheduleOnce(() => { this.showYouLostScreen(); }, 0.5);
-    }
-
-    private showYouLostScreen() {
-        if (!this.youLostScreen) return;
-        this.youLostScreen.active = true;
-        const op = this.youLostScreen.getComponent(UIOpacity) || this.youLostScreen.addComponent(UIOpacity);
-        op.opacity = 0;
-        tween(op).to(0.3, { opacity: 255 }).start();
-        this.youLostScreen.setScale(new Vec3(0, 0, 1));
-        tween(this.youLostScreen)
-            .to(0.5, { scale: new Vec3(1.15, 1.15, 1) }, { easing: 'backOut' })
-            .to(0.3, { scale: new Vec3(1, 1, 1) }, { easing: 'sineInOut' })
-            .call(() => {
-                this.playYouLostPulse();
-            })
-            .start();
-    }
-    
     private initBGM() {
        if (!this.bgmClip) return;
        this._audioSource = this.node.getComponent(AudioSource) || this.node.addComponent(AudioSource);
@@ -801,18 +770,13 @@ export class GameManager extends Component {
     private setupInitialState() {
         if (this.mainNode) this.mainNode.active = false;
         if (this.ctaScreen) this.ctaScreen.active = false;
-        if (this.youLostScreen) this.youLostScreen.active = false;
         if (this.introNode) this.introNode.active = false; 
-        if (this.popupNode) this.popupNode.active = false; 
+        if (this.timePopup) this.timePopup.active = false; 
         
-        this._movesMade = 0; 
-        this._currentMoves = this.maxMoves;
-        this.updateMovesLabel();
         if (this.stackOutline) this.stackOutline.clear();
     }
    
     private startSequence() {
-        // Start the game logic right away instead of using the old intro sequence
         this.startGameLogic(); 
     }
    
@@ -820,6 +784,9 @@ export class GameManager extends Component {
         if (!this.ctaScreen || this.ctaScreen.active) return;
         
         this.ctaScreen.active = true;
+        const widget = this.ctaScreen.getComponent(Widget);
+        if (widget) widget.updateAlignment();
+        
         const op = this.ctaScreen.getComponent(UIOpacity) || this.ctaScreen.addComponent(UIOpacity);
         op.opacity = 0;
         
@@ -831,7 +798,6 @@ export class GameManager extends Component {
             .to(0.5, { scale: new Vec3(1.15, 1.15, 1) }, { easing: 'backOut' })
             .to(0.3, { scale: new Vec3(1, 1, 1) }, { easing: 'sineInOut' })
             .call(() => {
-                // Trigger the looping pulse which now includes the particles
                 this.playCTAPulse();
             })
             .start();
@@ -856,17 +822,6 @@ export class GameManager extends Component {
                 this.playEpicConfetti();
             }
         }, 1.6);
-    }
-
-    private playYouLostPulse() {
-        if (!isValid(this.youLostScreen)) return;
-        
-        // 1. Loop the UI scaling (Confetti calls removed from here)
-        tween(this.youLostScreen).repeatForever(
-            tween()
-                .to(0.8, { scale: new Vec3(1.05, 1.05, 1) }, { easing: 'sineInOut' })
-                .to(0.8, { scale: new Vec3(1, 1, 1) }, { easing: 'sineInOut' })
-        ).start();
     }
 
     private playEpicConfetti() {
