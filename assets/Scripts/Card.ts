@@ -52,7 +52,6 @@ export class CardLogic extends Component {
 
     // --- ANIMATION STATE ---
     private _isAnimating: boolean = false; 
-    private readonly BASE_SCALE: Vec3 = new Vec3(1, 1, 1); // 🌟 IMPROVEMENT: Cached base scale for reliable resets
 
     // --- DRAG AND DROP STATE ---
     private _isDragging: boolean = false;
@@ -63,7 +62,7 @@ export class CardLogic extends Component {
     
     // --- PHYSICS & UX STATE ---
     private _currentVelocityX: number = 0;
-    private _activeHighlightTarget: CardLogic | null = null; 
+    private _activeHighlightTarget: CardLogic | null = null; // Tracks which pile is currently glowing
     
     // To return cards if drop fails
     private _originalParent: Node = null!;
@@ -77,7 +76,7 @@ export class CardLogic extends Component {
     }
 
     // =========================================================================
-    // ✋ TOUCH & DRAG LOGIC
+    // ✋ TOUCH & DRAG LOGIC (UX ENHANCED)
     // =========================================================================
 
     onTouchStart(event: EventTouch) {
@@ -123,6 +122,7 @@ export class CardLogic extends Component {
 
         const uiLoc = event.getUILocation();
 
+        // 1. Threshold Check
         if (!this._dragThresholdPassed) {
             const dist = Vec2.distance(this._dragStartPos, uiLoc);
             if (dist > 10) { 
@@ -133,22 +133,29 @@ export class CardLogic extends Component {
             }
         }
 
+        // 2. Move Logic
         if (this._draggedCards.length > 0 && this.gameManager.globalOverlay) {
             const overlayTransform = this.gameManager.globalOverlay.getComponent(UITransform);
+            
+            // 🌟 UX IMPROVEMENT: VISUAL LIFT (Y-OFFSET)
             const fingerOffset = new Vec3(0, 80, 0); 
             
             const worldPos = new Vec3(uiLoc.x, uiLoc.y, 0).add(this._dragOffset).add(fingerOffset);
             const localPos = overlayTransform.convertToNodeSpaceAR(worldPos);
 
+            // Physics Tilt Calculation
             const diffX = localPos.x - this._draggedCards[0].position.x;
             this._currentVelocityX = math.lerp(this._currentVelocityX, diffX, 0.5); 
             const targetAngle = math.clamp(-this._currentVelocityX * 1.5, -15, 15);
 
+            // Apply Head Position
             this._draggedCards[0].setPosition(localPos);
             
+            // Apply Tilt
             const currentAngle = this._draggedCards[0].angle;
             this._draggedCards[0].angle = math.lerp(currentAngle, targetAngle, 0.2);
 
+            // Snake Tail Logic
             for (let i = 1; i < this._draggedCards.length; i++) {
                 const currentCard = this._draggedCards[i];
                 const prevCard = this._draggedCards[i-1];
@@ -163,6 +170,7 @@ export class CardLogic extends Component {
                 currentCard.angle = math.lerp(currentCard.angle, prevCard.angle * 0.9, 0.2);
             }
 
+            // 🌟 UX IMPROVEMENT: PREDICTIVE HIGHLIGHTING
             this.checkAndHighlightTarget();
         }
     }
@@ -173,6 +181,7 @@ export class CardLogic extends Component {
         this.node.off(Node.EventType.TOUCH_CANCEL, this.onDragEnd, this);
         this._isDragging = false;
         
+        // 🌟 CLEAR HIGHLIGHTS
         if (this._activeHighlightTarget) {
             this._activeHighlightTarget.setHighlightState(false);
             this._activeHighlightTarget = null;
@@ -185,8 +194,7 @@ export class CardLogic extends Component {
         }
         
         this._draggedCards.forEach(c => {
-            Tween.stopAllByTarget(c); // 🌟 IMPROVEMENT: Stop tweens before fixing angle
-            tween(c).to(0.1, { angle: 0 }).start();
+             tween(c).to(0.1, { angle: 0 }).start();
         });
 
         this.attemptDrop();
@@ -194,10 +202,12 @@ export class CardLogic extends Component {
 
     checkAndHighlightTarget() {
         const headCard = this._draggedCards[0];
+        const headTrans = headCard.getComponent(UITransform);
         const headWorldPos = headCard.getWorldPosition(); 
 
         const targets = [...this.gameManager.tableauNodes, ...this.gameManager.foundationNodes];
         let foundTarget: CardLogic | null = null;
+
         let minDist = 200; 
 
         for (const targetNode of targets) {
@@ -238,8 +248,10 @@ export class CardLogic extends Component {
 
         if (activeCards.length > 0) {
             targetVisual = activeCards[activeCards.length - 1];
-        } else if (this.placeholderNode && isValid(this.placeholderNode)) {
-            targetVisual = this.placeholderNode;
+        } else {
+            if (this.placeholderNode && isValid(this.placeholderNode)) {
+                targetVisual = this.placeholderNode;
+            }
         }
 
         if (!targetVisual) return;
@@ -248,11 +260,11 @@ export class CardLogic extends Component {
 
         if (isActive) {
             tween(targetVisual)
-                .to(0.15, { scale: new Vec3(1.15, 1.5, 1) }, { easing: 'sineOut' })
+                .to(0.15, { scale: new Vec3(1.15, 1.15, 1) }, { easing: 'sineOut' })
                 .start();
         } else {
             tween(targetVisual)
-                .to(0.15, { scale: this.BASE_SCALE }, { easing: 'sineOut' }) // 🌟 IMPROVEMENT: Use BASE_SCALE
+                .to(0.15, { scale: new Vec3(1, 1, 1) }, { easing: 'sineOut' })
                 .start();
         }
     }
@@ -268,9 +280,8 @@ export class CardLogic extends Component {
         this._originalSiblingIndices = this._draggedCards.map(c => c.getSiblingIndex());
 
         this._draggedCards.forEach((card, index) => {
-            Tween.stopAllByTarget(card); // 🌟 IMPROVEMENT: Safely kill old animations
-
             const startWorldScale = card.getWorldScale().clone();   
+
             const worldPos = card.getWorldPosition();
             const localOverlayPos = overlayTrans.convertToNodeSpaceAR(worldPos);
 
@@ -278,9 +289,9 @@ export class CardLogic extends Component {
             card.setPosition(localOverlayPos);
             card.setWorldScale(startWorldScale); 
             
-            // 🌟 IMPROVEMENT: Absolute target scale to prevent compounding distortion
+            const currentScale = card.getScale();
             tween(card)
-                .to(0.1, { scale: new Vec3(1.2, 1.2, 1) }, { easing: 'backOut' })
+                .to(0.1, { scale: new Vec3(currentScale.x * 1.2, currentScale.y * 1.2, 1) }, { easing: 'backOut' })
                 .start();
             
             const op = card.getComponent(UIOpacity) || card.addComponent(UIOpacity);
@@ -326,6 +337,7 @@ export class CardLogic extends Component {
             });
             this.executeStackMove(this._draggedCards, bestTarget);
             
+            // 🌟 FIX: Clear reference immediately to prevent race conditions on subsequent clicks
             this._draggedCards = []; 
         } else {
             this.returnCardsToOriginal();
@@ -344,11 +356,12 @@ export class CardLogic extends Component {
 
         if (isTargetEmpty) {
             if (targetLogic.holderType === HolderType.TABLEAU) {
-                return dragData.value === 12; 
+                return dragData.value === 12; // King only
             } else if (targetLogic.holderType === HolderType.FOUNDATION) {
                 return dragData.value === 0 && this._draggedCards.length === 1;
             }
-        } else {
+        } 
+        else {
             const topTarget = targetChildren[targetChildren.length - 1];
             const targetData = this.getCardData(topTarget);
             if (!targetData) return false;
@@ -367,11 +380,13 @@ export class CardLogic extends Component {
         const overlayTrans = this.gameManager.globalOverlay.getComponent(UITransform);
         const parentTrans = this._originalParent.getComponent(UITransform);
 
+        // 🌟 FIX 1: Create local copies of the state before it gets overwritten
         const cardsToReturn = [...this._draggedCards];
         const originalPositions = [...this._originalPositions];
         const originalIndices = [...this._originalSiblingIndices];
         const originalParent = this._originalParent;
 
+        // 🌟 FIX 2: Clear active state immediately & lock interactions on this pile
         this._draggedCards = [];
         this._isAnimating = true; 
 
@@ -384,9 +399,8 @@ export class CardLogic extends Component {
         }
 
         cardsToReturn.forEach((card, index) => {
-            Tween.stopAllByTarget(card); // 🌟 IMPROVEMENT: Kill animations before returning
-
             const originalPos = originalPositions[index];
+            
             const worldDest = parentTrans.convertToWorldSpaceAR(originalPos);
             const overlayDest = overlayTrans.convertToNodeSpaceAR(worldDest);
 
@@ -394,11 +408,13 @@ export class CardLogic extends Component {
                 .parallel(
                     tween().to(0.3, { position: overlayDest }, { easing: 'sineOut' }), 
                     tween().to(0.3, { angle: 0 }, { easing: 'sineOut' }),             
-                    tween().to(0.2, { scale: this.BASE_SCALE }) // 🌟 IMPROVEMENT: Use BASE_SCALE
+                    tween().to(0.2, { scale: new Vec3(1, 1, 1) })                      
                 )
                 .call(() => {
                     completedCount++;
+                    
                     if (completedCount === totalCards) {
+                        // 🌟 FIX 3: Pass local variables to finalize to prevent reference bugs
                         this.finalizeReturn(cardsToReturn, originalPositions, originalIndices, originalParent);
                     }
                 })
@@ -406,18 +422,26 @@ export class CardLogic extends Component {
         });
     }
 
+    // Helper to restore order safely
     finalizeReturn(cardsToReturn: Node[], originalPositions: Vec3[], originalIndices: number[], originalParent: Node) {
         cardsToReturn.forEach((card, index) => {
             if (isValid(card) && isValid(originalParent)) {
+                // 1. Put back in parent
                 card.setParent(originalParent);
+                
+                // 2. Reset Position
                 card.setPosition(originalPositions[index]);
-                card.setScale(this.BASE_SCALE); // 🌟 IMPROVEMENT: Hard set to base scale just in case
+                
+                // 3. Restore strict order
                 card.setSiblingIndex(originalIndices[index]);
                 
+                // 4. Ensure opacity is back
                 const op = card.getComponent(UIOpacity) || card.addComponent(UIOpacity);
                 op.opacity = 255;
             }
         });
+
+        // 🌟 FIX 4: Unblock interaction now that cards are safely back
         this._isAnimating = false; 
     }
 
@@ -435,7 +459,7 @@ export class CardLogic extends Component {
     }
 
     // =========================================================================
-    // 🧠 CLICK & MOVE LOGIC
+    // 🧠 CLICK & MOVE LOGIC (Standard)
     // =========================================================================
 
     handleStandardClick(event: EventTouch) {
@@ -557,13 +581,12 @@ export class CardLogic extends Component {
             const totalCards = reversedWaste.length;
 
             reversedWaste.forEach((card, index) => {
-                Tween.stopAllByTarget(card); // 🌟 IMPROVEMENT: Stop tweens
-
                 const startWorldPos = card.getWorldPosition().clone();
                 const startWorldScale = card.getWorldScale().clone(); 
 
                 card.setParent(overlay);
                 card.setWorldScale(startWorldScale); 
+                const baseScale = card.scale.clone(); 
                 
                 let startLocalPos = overlayTransform ? overlayTransform.convertToNodeSpaceAR(startWorldPos) : startWorldPos;
                 card.setPosition(startLocalPos);
@@ -577,17 +600,17 @@ export class CardLogic extends Component {
                     .parallel(
                         tween().to(flightDuration, { position: targetPosInOverlay }, { easing: 'cubicInOut' }),
                         tween()
-                            .to(flightDuration * 0.5, { scale: new Vec3(0, 1, 1) }) // 🌟 IMPROVEMENT: Clean 0 X-scale for flip
+                            .to(flightDuration * 0.5, { scale: new Vec3(0, baseScale.y, baseScale.z) }) 
                             .call(() => {
                                 const flipper = card.getComponent(CardFlipper);
                                 if (flipper) flipper.setFaceDown(); 
                             })
-                            .to(flightDuration * 0.5, { scale: this.BASE_SCALE }) 
+                            .to(flightDuration * 0.5, { scale: baseScale }) 
                     )
                     .call(() => {
                         card.setParent(this.node);
                         card.setPosition(0, 0, 0); 
-                        card.setScale(this.BASE_SCALE); 
+                        card.setScale(1, 1, 1); 
                         completedCount++;
 
                         if (completedCount === totalCards) {
@@ -625,14 +648,13 @@ export class CardLogic extends Component {
             let completedCount = 0;
             const totalCount = nodesToMove.length;
             nodesToMove.forEach(cardNode => {
-                Tween.stopAllByTarget(cardNode); // 🌟 IMPROVEMENT
-
                 const startWorldPos = cardNode.getWorldPosition().clone();
                 const startWorldScale = cardNode.getWorldScale().clone(); 
                 const targetWorldPos = target.node.getWorldPosition().clone();
 
                 cardNode.setParent(overlay);
                 cardNode.setWorldScale(startWorldScale); 
+                const baseScale = cardNode.scale.clone(); 
                 
                 let startLocalPos = overlayTransform ? overlayTransform.convertToNodeSpaceAR(startWorldPos) : startWorldPos;
                 let targetLocalPos = overlayTransform ? overlayTransform.convertToNodeSpaceAR(targetWorldPos) : targetWorldPos;
@@ -654,7 +676,7 @@ export class CardLogic extends Component {
                             .to(duration * 0.5, { position: targetLocalPos }, { easing: 'sineIn' }),
 
                         tween()
-                            .to(duration * 0.5, { scale: new Vec3(0, 1.15, 1) }, { easing: 'sineIn' }) // 🌟 IMPROVEMENT: Uniform Y scale during flip
+                            .to(duration * 0.5, { scale: new Vec3(0, baseScale.y * 1.15, baseScale.z) }, { easing: 'sineIn' }) 
                             .call(() => {
                                 const flipper = cardNode.getComponent(CardFlipper);
                                 const sprite = cardNode.getComponent(Sprite);
@@ -663,19 +685,17 @@ export class CardLogic extends Component {
                                     cardNode.name = flipper.faceUpSprite.name;
                                 }
                             })
-                            .to(duration * 0.5, { scale: this.BASE_SCALE }, { easing: 'sineOut' }),
+                            .to(duration * 0.5, { scale: baseScale }, { easing: 'sineOut' }),
                         tween().to(duration, { angle: messyPileAngle })
                     )
                     .call(() => {
                         if (target.node && isValid(target.node)) {
                             cardNode.setParent(target.node);
                             cardNode.setPosition(0, 0, 0); 
-                            cardNode.setScale(this.BASE_SCALE); 
+                            cardNode.setScale(1, 1, 1); 
                             cardNode.angle = messyPileAngle; 
                             
-                            // 🌟 IMPROVEMENT: Uniform scaling for the bounce! No more squashing
-                            tween(cardNode).to(0.1, { scale: new Vec3(1.05, 1.05, 1) }).to(0.15, { scale: this.BASE_SCALE }).start();
-                            
+                            tween(cardNode).to(0.1, { scale: new Vec3(1.05, 0.95, 1) }).to(0.15, { scale: new Vec3(1, 1, 1) }).start();
                             this.updatePlaceholderVisibility();
                             target.updatePlaceholderVisibility();
                         }
@@ -694,7 +714,6 @@ export class CardLogic extends Component {
         const startWorldScales = nodesToMove.map(node => node.getWorldScale().clone());
         
         nodesToMove.forEach(cardNode => {
-            Tween.stopAllByTarget(cardNode); // 🌟 IMPROVEMENT
             const op = cardNode.getComponent(UIOpacity) || cardNode.addComponent(UIOpacity);
             op.opacity = 0; 
             cardNode.setParent(target.node); 
@@ -724,6 +743,7 @@ export class CardLogic extends Component {
         nodesToMove.forEach((cardNode, index) => {
             let targetPosInOverlay = overlayTransform ? overlayTransform.convertToNodeSpaceAR(finalWorldPositions[index]) : finalWorldPositions[index];
             const startPos = cardNode.position.clone();
+            const originalScale = cardNode.scale.clone();
 
             const midX = (startPos.x + targetPosInOverlay.x) / 2;
             const midY = (startPos.y + targetPosInOverlay.y) / 2 + 150; 
@@ -742,22 +762,22 @@ export class CardLogic extends Component {
                         .to(flightDuration * 0.5, { position: midPos }, { easing: 'sineOut' })
                         .to(flightDuration * 0.5, { position: targetPosInOverlay }, { easing: 'quadIn' }),
                     tween()
-                        .to(flightDuration * 0.5, { scale: new Vec3(1.2, 1.2, 1) }, { easing: 'sineOut' }) // 🌟 IMPROVEMENT: Absolute target
-                        .to(flightDuration * 0.5, { scale: this.BASE_SCALE }, { easing: 'sineIn' }),
+                        .to(flightDuration * 0.5, { scale: new Vec3(originalScale.x * 1.2, originalScale.y * 1.2, 1) }, { easing: 'sineOut' })
+                        .to(flightDuration * 0.5, { scale: originalScale }, { easing: 'sineIn' }),
                     tween().to(flightDuration * 0.8, { angle: randomTilt }).to(flightDuration * 0.2, { angle: 0 }) 
                 )
                 .call(() => {
                     if (target.node && isValid(target.node)) {
                         cardNode.setParent(target.node);
                         cardNode.setPosition(finalLocalPositions[index]);
-                        cardNode.setScale(this.BASE_SCALE); 
+                        cardNode.setScale(new Vec3(1, 1, 1)); 
 
-                        // 🌟 IMPROVEMENT: Uniform scale bounce
-                        tween(cardNode).to(0.1, { scale: new Vec3(1.05, 1.05, 1) }).to(0.15, { scale: this.BASE_SCALE }).start();
+                        tween(cardNode).to(0.1, { scale: new Vec3(1.05, 0.95, 1) }).to(0.15, { scale: new Vec3(1, 1, 1) }).start();
 
                         completedCount++;
 
                         if (completedCount === totalCards) {
+                            
                             nodesToMove.forEach(n => {
                                 if (n.parent) n.setSiblingIndex(n.parent.children.length - 1);
                             });
