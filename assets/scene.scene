@@ -331,6 +331,10 @@
       "__expectedType__": "cc.AudioClip"
     },
     "cardDropSound": null,
+    "cardFlipSound": {
+      "__uuid__": "18f2ac9f-2d24-4b37-81a8-48c069f87ad7",
+      "__expectedType__": "cc.AudioClip"
+    },
     "unmuteNode": {
       "__id__": 27
     },

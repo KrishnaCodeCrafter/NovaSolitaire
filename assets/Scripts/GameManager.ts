@@ -59,6 +59,7 @@ export class GameManager extends Component {
     // --- AUDIO & MUTE REFERENCES ---
     @property({ type: AudioClip }) public bgmClip: AudioClip = null!;
     @property({ type: AudioClip }) public cardDropSound: AudioClip = null!;
+    @property({ type: AudioClip }) public cardFlipSound: AudioClip = null!; 
     
     // Using Nodes instead of SpriteFrames now
     @property(Node) public unmuteNode: Node = null!; // The node showing "Audio On"
@@ -159,6 +160,13 @@ export class GameManager extends Component {
     // =========================================================================
     // INITIAL CARD DROP ANIMATION
     // =========================================================================
+
+    private playCardFlipLoop() {
+        if (this._audioSource && this.cardFlipSound && !this._isMuted) {
+            // 0.4 volume ensures it doesn't overpower the BGM; adjust as needed
+            this._audioSource.playOneShot(this.cardFlipSound, 0.4); 
+        }
+    }
 
     private startGameLogic() {
         if (this.mainNode) {
@@ -263,14 +271,14 @@ export class GameManager extends Component {
             const flightDuration = 0.6;
             maxDuration = Math.max(maxDuration, delay + flightDuration);
 
-            // Play drop sound ONLY if not muted
-            if (index % 3 === 0) {
-                this.scheduleOnce(() => {
-                    if(this._audioSource && this.cardDropSound && !this._isMuted) {
-                        this._audioSource.playOneShot(this.cardDropSound, 0.3);
-                    }
-                }, delay);
-            }
+            // --- UPDATED AUDIO LOGIC ---
+            // Play flip sound precisely when this specific card starts moving
+            this.scheduleOnce(() => {
+                if (this._audioSource && this.cardFlipSound && !this._isMuted) {
+                    this._audioSource.playOneShot(this.cardFlipSound, 0.4);
+                }
+            }, delay);
+            // ---------------------------
 
             const tweenObj = { t: 0 };
             
@@ -346,7 +354,7 @@ export class GameManager extends Component {
             }
         });
     }
-
+    
     // =========================================================================
     // POST-DEAL INTRO MESSAGE LOGIC
     // =========================================================================
