@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Vec3, tween, UIOpacity, isValid, AudioSource, AudioClip, UITransform, Label, Tween, Prefab, instantiate, Color, math, view, Sprite, Widget } from 'cc';
+import { _decorator, Component, Node, Vec3, tween, UIOpacity, isValid, AudioSource, AudioClip, UITransform, Label, Tween, Prefab, instantiate, Color, math, view, Sprite, Widget, input, Input } from 'cc';
 import { StackOutline } from './stackOutline'; 
 
 const { ccclass, property } = _decorator;
@@ -41,18 +41,28 @@ interface CardAnimationData {
 export class GameManager extends Component {
 
     // --- UI REFERENCES ---
-    @property(Node) public introNode: Node = null!; // Now used for the post-deal message
+    @property(Node) public introNode: Node = null!; 
     @property(Node) public handNode: Node = null!; 
     @property(Node) public mainNode: Node = null!;
     @property(Node) public ctaScreen: Node = null!;       
     @property(Node) public globalOverlay: Node = null!;
-    @property({ type: AudioClip }) public bgmClip: AudioClip = null!;
-    @property({ type: AudioClip }) public cardDropSound: AudioClip = null!;
-    @property(Node) public timePopup: Node = null!; 
     @property({ type: Prefab }) public confettiPrefab: Prefab = null!;
     @property({ type: Node }) public confettiContainer: Node = null!;
-    @property public popupDelay: number = 30.0; 
 
+    // --- REDIRECT SETTINGS ---
+    @property({ type: String, tooltip: "The URL to redirect to after the delay" }) 
+    public redirectUrl: string = "https://play.google.com/store/apps/details?id=nova.solitaire.patience.card.games.klondike.free";
+
+    @property({ type: Number, tooltip: "Time in seconds before automatic redirect" }) 
+    public redirectDelay: number = 25.0;
+
+    // --- AUDIO & MUTE REFERENCES ---
+    @property({ type: AudioClip }) public bgmClip: AudioClip = null!;
+    @property({ type: AudioClip }) public cardDropSound: AudioClip = null!;
+    
+    // Using Nodes instead of SpriteFrames now
+    @property(Node) public unmuteNode: Node = null!; // The node showing "Audio On"
+    @property(Node) public muteNode: Node = null!;   // The node showing "Audio Off"
 
     // --- PILE REFERENCES ---
     @property({ type: [Node] }) public tableauNodes: Node[] = [];
@@ -62,7 +72,7 @@ export class GameManager extends Component {
 
     // --- AI HINT SYSTEM ---
     @property({ type: StackOutline }) public stackOutline: StackOutline = null!; 
-    @property public idleHintDelay: number = 5.0;
+    @property public idleHintDelay: number = 2.0;
 
     // --- INTERNAL STATE ---
     private _isFirstMovePending: boolean = true; 
@@ -75,12 +85,16 @@ export class GameManager extends Component {
     private _totalHiddenCards: number = 21; 
     private _revealedCount: number = 0;
     private _animationComplete: boolean = false; 
-    private _isTimePopupShowing: boolean = false; 
+    private _isMuted: boolean = false; // Initially unmuted
 
     onLoad() {
         this.initBGM();
         this.setupInitialState();
         this.startSequence();
+
+        if (this.unmuteNode) this.unmuteNode.on(Node.EventType.TOUCH_END, this.toggleAudio, this);
+        if (this.muteNode) this.muteNode.on(Node.EventType.TOUCH_END, this.toggleAudio, this);
+        this.scheduleOnce(this.triggerAutoRedirect, this.redirectDelay);
     }
 
     update(dt: number) {
@@ -105,7 +119,6 @@ export class GameManager extends Component {
     public get isInteractable(): boolean {
         return this._animationComplete && 
                !this._isIntroShowing && 
-               !this._isTimePopupShowing &&
                !this._gameWon && 
                !this._isAutoPlaying;
     }
@@ -125,6 +138,23 @@ export class GameManager extends Component {
         this.checkFoundationWinCondition(); 
     }
 
+
+    // =========================================================================
+    // AUDIO TOGGLE LOGIC
+    // =========================================================================
+
+    public toggleAudio() {
+        this._isMuted = !this._isMuted;
+        
+        // 1. Toggle Node Visibility
+        if (this.unmuteNode) this.unmuteNode.active = !this._isMuted;
+        if (this.muteNode) this.muteNode.active = this._isMuted;
+
+        // 2. Adjust volume for bulletproof playable compatibility
+        if (this._audioSource) {
+            this._audioSource.volume = this._isMuted ? 0 : 0.5;
+        }
+    }
 
     // =========================================================================
     // INITIAL CARD DROP ANIMATION
@@ -159,6 +189,16 @@ export class GameManager extends Component {
                 opacity.opacity = 0; 
             });
         });
+    }
+
+    private triggerAutoRedirect() {
+        if (!this.redirectUrl) return;
+        
+        // Standard web redirect. Opens in a new tab.
+        window.open(this.redirectUrl, '_blank');
+        
+        // Note: If you want it to replace the current page instead of opening a new tab, use:
+        // window.location.href = this.redirectUrl;
     }
 
     private animateCardsDropping() {
@@ -223,9 +263,12 @@ export class GameManager extends Component {
             const flightDuration = 0.6;
             maxDuration = Math.max(maxDuration, delay + flightDuration);
 
+            // Play drop sound ONLY if not muted
             if (index % 3 === 0) {
                 this.scheduleOnce(() => {
-                    if(this._audioSource && this.cardDropSound) this._audioSource.playOneShot(this.cardDropSound, 0.3);
+                    if(this._audioSource && this.cardDropSound && !this._isMuted) {
+                        this._audioSource.playOneShot(this.cardDropSound, 0.3);
+                    }
                 }, delay);
             }
 
@@ -272,9 +315,8 @@ export class GameManager extends Component {
         this.scheduleOnce(() => {
             this._animationComplete = true;
             if (this._isFirstMovePending) {
-                this.showIntroMessage(); // Launch intro message instead of hand directly
+                this.showIntroMessage(); 
             }
-            this.scheduleOnce(this.showTimePopup, this.popupDelay);
         }, maxDuration + 0.2);
     }
 
@@ -305,59 +347,12 @@ export class GameManager extends Component {
         });
     }
 
-
-    // =========================================================================
-    // 30-SECOND POPUP LOGIC
-    // =========================================================================
-
-    private showTimePopup() {
-        // Don't show if the node isn't assigned or the player already won
-        if (!this.timePopup || this._gameWon) return;
-
-        this._isTimePopupShowing = true;
-        this.timePopup.active = true;
-        
-        // Fade it in smoothly
-        const op = this.timePopup.getComponent(UIOpacity) || this.timePopup.addComponent(UIOpacity);
-        op.opacity = 0;
-        tween(op).to(0.3, { opacity: 255 }).start();
-
-        // Listen for a tap anywhere on the popup to dismiss it early
-        this.timePopup.on(Node.EventType.TOUCH_END, this.hideTimePopup, this);
-
-        // Auto-dismiss after 3 seconds if the user doesn't click it
-        this.scheduleOnce(this.hideTimePopup, 3.0);
-    }
-
-    private hideTimePopup() {
-        if (!this.timePopup || !this._isTimePopupShowing) return;
-
-        this._isTimePopupShowing = false;
-        
-        // Cancel the 3-second auto-timer and remove the touch event
-        this.unschedule(this.hideTimePopup);
-        this.timePopup.off(Node.EventType.TOUCH_END, this.hideTimePopup, this);
-
-        // Fade it out smoothly
-        const op = this.timePopup.getComponent(UIOpacity);
-        if (op) {
-            tween(op).to(0.3, { opacity: 0 })
-                .call(() => {
-                    this.timePopup.active = false;
-                })
-                .start();
-        } else {
-            this.timePopup.active = false;
-        }
-    }
-
     // =========================================================================
     // POST-DEAL INTRO MESSAGE LOGIC
     // =========================================================================
 
     private showIntroMessage() {
         if (!this.introNode) {
-            // Fallback: If introNode isn't assigned, just start the hand tutorial immediately
             if (this._isFirstMovePending) this.showHandTutorial();
             return;
         }
@@ -369,10 +364,7 @@ export class GameManager extends Component {
         op.opacity = 0;
         tween(op).to(0.3, { opacity: 255 }).start();
 
-        // Listen for user tap anywhere on the intro node
         this.introNode.on(Node.EventType.TOUCH_END, this.hideIntroMessage, this);
-
-        // Auto-dismiss after 3 seconds
         this.scheduleOnce(this.hideIntroMessage, 3.0);
     }
 
@@ -381,7 +373,6 @@ export class GameManager extends Component {
 
         this._isIntroShowing = false;
         
-        // Cancel the 3-second timer and remove the touch event
         this.unschedule(this.hideIntroMessage);
         this.introNode.off(Node.EventType.TOUCH_END, this.hideIntroMessage, this);
 
@@ -390,7 +381,6 @@ export class GameManager extends Component {
             tween(op).to(0.3, { opacity: 0 })
                 .call(() => {
                     this.introNode.active = false;
-                    // Start the hand tutorial right after the message hides
                     if (this._isFirstMovePending) {
                         this.showHandTutorial();
                     }
@@ -407,8 +397,6 @@ export class GameManager extends Component {
     // =========================================================================
 
     public refreshHandTutorial() {
-        // Only refresh the hand if the cards are done, it's the first move, 
-        // AND the intro message is no longer showing on the screen.
         if (this._isFirstMovePending && this._animationComplete && !this._isIntroShowing) {
             this.hideHandTutorial();
             this.unschedule(this.showHandTutorial);
@@ -745,6 +733,7 @@ export class GameManager extends Component {
         if (this._gameWon) return;
         this._gameWon = true;
         this.scheduleOnce(() => { this.showCTA(); }, 0.5);
+        this.unschedule(this.triggerAutoRedirect);
     }
 
     private getTopCard(holder: Node): Node | null {
@@ -758,20 +747,41 @@ export class GameManager extends Component {
        this._audioSource = this.node.getComponent(AudioSource) || this.node.addComponent(AudioSource);
        this._audioSource.clip = this.bgmClip;
        this._audioSource.loop = true;
-       this._audioSource.playOnAwake = true;
-       this._audioSource.volume = 0.5;
-       this._audioSource.play();
+       this._audioSource.playOnAwake = false; // Better to control this manually in playables
+       this._audioSource.volume = this._isMuted ? 0 : 0.5;
+       
+       // Attempt to play immediately (works on some lenient ad networks)
+       if (!this._isMuted) {
+           this._audioSource.play();
+       }
+
+       // Bypass strict browser autoplay policies by catching the first interaction globally
+       input.once(Input.EventType.TOUCH_START, this.startAudioOnFirstTouch, this);
+    }
+
+    private startAudioOnFirstTouch() {
+        // Jumpstart the audio engine on the first tap
+        if (this._audioSource && !this._audioSource.playing) {
+            this._audioSource.play();
+        }
     }
 
     private ensureAudioPlays() { 
-        if (this._audioSource && !this._audioSource.playing) this._audioSource.play(); 
+        // We no longer return early if muted, because the volume handles the silence.
+        // This ensures if the ad network forcibly stops the track, the next move kicks it back on.
+        if (this._audioSource && !this._audioSource.playing) {
+            this._audioSource.play(); 
+        }
     }
    
     private setupInitialState() {
         if (this.mainNode) this.mainNode.active = false;
         if (this.ctaScreen) this.ctaScreen.active = false;
         if (this.introNode) this.introNode.active = false; 
-        if (this.timePopup) this.timePopup.active = false; 
+        
+        // Setup initial UI nodes (Show unmute, hide mute)
+        if (this.unmuteNode) this.unmuteNode.active = true;
+        if (this.muteNode) this.muteNode.active = false;
         
         if (this.stackOutline) this.stackOutline.clear();
     }
@@ -806,17 +816,14 @@ export class GameManager extends Component {
     private playCTAPulse() {
         if (!isValid(this.ctaScreen)) return;
         
-        // 1. Loop the UI scaling
         tween(this.ctaScreen).repeatForever(
             tween()
                 .to(0.8, { scale: new Vec3(1.05, 1.05, 1) }, { easing: 'sineInOut' })
                 .to(0.8, { scale: new Vec3(1, 1, 1) }, { easing: 'sineInOut' })
         ).start();
 
-        // 2. Play first burst immediately
         this.playEpicConfetti();
         
-        // 3. Loop the confetti continuously while the CTA screen is active
         this.schedule(() => {
             if (this.ctaScreen.active) {
                 this.playEpicConfetti();
@@ -826,18 +833,16 @@ export class GameManager extends Component {
 
     private playEpicConfetti() {
         const elegantColors = [
-            new Color(255, 215, 0, 255),   // Magical Gold
-            new Color(100, 255, 150, 255), // Forest Glow Green
-            new Color(255, 255, 255, 255)  // Pure White
+            new Color(255, 215, 0, 255),   
+            new Color(100, 255, 150, 255), 
+            new Color(255, 255, 255, 255)  
         ];
 
-        // 1. THE BURST: An immediate, energetic magical explosion from the pedestal
         this.createMysticBurst(0, -150, 80, elegantColors);
 
-        // 2. THE CASCADE: The elegant, randomized falling leaves that sustain the joy
         this.scheduleOnce(() => {
             this.createEnchantedCascade(elegantColors, 40);
-        }, 0.3); // Starts just as the burst slows down
+        }, 0.3); 
         
         this.scheduleOnce(() => {
             this.createEnchantedCascade(elegantColors, 35);
@@ -861,48 +866,42 @@ export class GameManager extends Component {
 
             if (sprite) sprite.color = colors[Math.floor(Math.random() * colors.length)];
             
-            // Slightly smaller scale for the burst so it feels like dense energy
             const baseScale = Math.random() * 0.3 + 0.15;
             piece.setScale(new Vec3(baseScale, baseScale, 1));
             piece.setPosition(startX, startY, 0);
 
-            // 360-degree explosive math
             const angle = Math.random() * Math.PI * 2; 
-            const force = Math.random() * 700 + 300; // High speed
+            const force = Math.random() * 700 + 300; 
             
             const burstTargetX = startX + (Math.cos(angle) * force);
             const burstTargetY = startY + (Math.sin(angle) * force);
 
-            const burstDuration = Math.random() * 0.4 + 0.2; // Very fast outwards
-            const floatDuration = Math.random() * 1.5 + 1.0; // Hangs in the air
+            const burstDuration = Math.random() * 0.4 + 0.2; 
+            const floatDuration = Math.random() * 1.5 + 1.0; 
 
             const animState = { t: 0 };
             
             tween(animState)
-                // Phase 1: The Snappy Explosion
                 .to(burstDuration, { t: 1 }, {
-                    easing: 'expoOut', // Starts incredibly fast, brakes hard
+                    easing: 'expoOut', 
                     onUpdate: (target: {t: number}) => {
                         const progress = target.t;
                         const currentX = math.lerp(startX, burstTargetX, progress);
                         const currentY = math.lerp(startY, burstTargetY, progress);
                         
                         piece.setPosition(currentX, currentY, 0);
-                        piece.angle = progress * 720; // Violent spin
+                        piece.angle = progress * 720; 
                     }
                 })
-                // Phase 2: The Magic Dissipates
                 .call(() => { animState.t = 0; })
                 .to(floatDuration, { t: 1 }, {
                     easing: 'sineOut',
                     onUpdate: (target: {t: number}) => {
                         const progress = target.t;
                         
-                        // Drift down very slightly like embers
                         const currentY = math.lerp(burstTargetY, burstTargetY - 80, progress);
                         piece.setPosition(burstTargetX, currentY, 0);
                         
-                        // Fade out into the background
                         uiOpacity.opacity = math.lerp(255, 0, progress);
                         piece.angle += 2;
                     }
@@ -926,28 +925,24 @@ export class GameManager extends Component {
             
             if (sprite) sprite.color = colors[Math.floor(Math.random() * colors.length)];
             
-            // RANDOMNESS 1: Stagger the starting heights so they don't drop in a perfect flat line
             const startX = (Math.random() * screenSize.width) - (screenSize.width / 2);
             const startY = (screenSize.height / 2) + 100 + (Math.random() * 300); 
             piece.setPosition(startX, startY, 0);
 
-            // RANDOMNESS 2: Extreme scale variations for "Depth" (some close to camera, some far)
-            const isForeground = Math.random() > 0.85; // 15% chance to be a massive foreground piece
+            const isForeground = Math.random() > 0.85; 
             const baseScale = isForeground ? (Math.random() * 0.5 + 0.4) : (Math.random() * 0.2 + 0.1);
             piece.setScale(new Vec3(baseScale, baseScale, 1));
             
-            // Dim the background ones slightly to enhance the 3D parallax feel
             const maxOpacity = isForeground ? 255 : 160;
 
-            // RANDOMNESS 3: Chaotic physics variables
             const fallSpeed = Math.random() * 4.0 + 2.5; 
             const swayWidth = Math.random() * 200 + 50;  
             const swaySpeed = Math.random() * 1.5 + 0.5;     
-            const turbulence = Math.random() * 4 + 2; // A secondary, faster wind pattern
+            const turbulence = Math.random() * 4 + 2; 
             
             const tumbleSpeed = Math.random() * 4 + 1; 
             const spinDirection = Math.random() > 0.5 ? 1 : -1;
-            const spinSpeed = (Math.random() * 3 + 0.5) * spinDirection; // Random direction and speed
+            const spinSpeed = (Math.random() * 3 + 0.5) * spinDirection; 
 
             const animState = { t: 0 };
             
@@ -958,20 +953,16 @@ export class GameManager extends Component {
                         
                         const currentY = math.lerp(startY, -screenSize.height / 2 - 150, progress);
                         
-                        // RANDOMNESS 4: Double sine-wave for organic, unpredictable fluttering
                         const primarySway = Math.sin(progress * Math.PI * swaySpeed) * swayWidth;
                         const erraticFlutter = Math.cos(progress * Math.PI * turbulence) * (swayWidth * 0.25);
                         
                         piece.setPosition(startX + primarySway + erraticFlutter, currentY, 0);
 
-                        // 3D Tumble
                         const scaleFlip = Math.cos(progress * Math.PI * tumbleSpeed);
                         piece.setScale(new Vec3(scaleFlip * baseScale, baseScale, 1));
                         
-                        // Chaotic Spin
                         piece.angle += spinSpeed;
 
-                        // Fade logic adapting to the random maxOpacity
                         if (progress < 0.1) {
                             uiOpacity.opacity = math.lerp(0, maxOpacity, progress * 10);
                         } else if (progress > 0.8) {

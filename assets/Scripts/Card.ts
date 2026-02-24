@@ -45,6 +45,12 @@ export class CardLogic extends Component {
     @property(AudioClip)
     public errorSound: AudioClip = null!;
 
+    @property(AudioClip)
+    public stockResetSound: AudioClip = null!;
+
+    @property(AudioClip)
+    public emptyStockSound: AudioClip = null!;
+
     @property(GameManager)
     public gameManager: GameManager = null!;
 
@@ -532,6 +538,7 @@ export class CardLogic extends Component {
         );
 
         if (stockCards.length > 0) {
+            // Normal Draw (Stock to Waste)
             const topCard = stockCards[stockCards.length - 1];
             this.playSFX(this.successSound);
             this._isAnimating = true;
@@ -554,15 +561,22 @@ export class CardLogic extends Component {
                 c.name.startsWith("card") && c !== wasteLogic?.placeholderNode
             );
 
+            // ---------------------------------------------------------
+            // NO STOCKS RESET (Stock is empty, Waste is empty)
+            // ---------------------------------------------------------
             if (wasteCards.length === 0) {
                 if (this.emptyStockVisual) this.emptyStockVisual.active = true;
                 if (this.placeholderNode) this.placeholderNode.active = false;
                 if (this.visualDeckTop) this.visualDeckTop.active = false;
-                this.playSFX(this.errorSound);
+                
+                // Play the specific empty stock sound, fallback to errorSound if not assigned
+                this.playSFX(this.emptyStockSound ? this.emptyStockSound : this.errorSound);
                 return;
             }
 
-            this.playSFX(this.successSound); 
+            // ---------------------------------------------------------
+            // STOCK RESET (Moving Waste back to Stock - Option 2)
+            // ---------------------------------------------------------
             this._isAnimating = true;
 
             const reversedWaste = wasteCards.reverse();
@@ -594,6 +608,15 @@ export class CardLogic extends Component {
 
                 const flightDuration = 0.45;
                 const staggerDelay = index * 0.035; 
+
+                // PLAY SOUND PER CARD: Triggers exactly as the card starts moving
+                if (staggerDelay === 0) {
+                    this.playSFX(this.stockResetSound ? this.stockResetSound : this.successSound);
+                } else {
+                    this.scheduleOnce(() => {
+                        this.playSFX(this.stockResetSound ? this.stockResetSound : this.successSound);
+                    }, staggerDelay);
+                }
 
                 tween(card)
                     .delay(staggerDelay)
@@ -932,7 +955,10 @@ export class CardLogic extends Component {
     }
 
     private playSFX(clip: AudioClip) {
-        if (clip && this._audioSource) this._audioSource.playOneShot(clip, 1.0); 
+        if (!clip || !this._audioSource) return;
+        const isMuted = this.gameManager ? (this.gameManager as any)._isMuted : false;
+        const targetVolume = isMuted ? 0 : 1.0;
+        this._audioSource.playOneShot(clip, targetVolume); 
     }
 
     private playSuccessEffect(targetNode: Node) {
