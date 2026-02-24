@@ -2,22 +2,22 @@
   "ver": "1.0.27",
   "importer": "image",
   "imported": true,
-  "uuid": "bf2432d6-4b2c-4976-b28b-6032204daf04",
+  "uuid": "6f3df106-b61a-4f09-965e-2de3121ca7f4",
   "files": [
-    ".jpeg",
+    ".jpg",
     ".json"
   ],
   "subMetas": {
     "6c48a": {
       "importer": "texture",
-      "uuid": "bf2432d6-4b2c-4976-b28b-6032204daf04@6c48a",
+      "uuid": "6f3df106-b61a-4f09-965e-2de3121ca7f4@6c48a",
       "displayName": "Portrait-Background-Mystic (1)",
       "id": "6c48a",
       "name": "texture",
       "userData": {
         "wrapModeS": "clamp-to-edge",
         "wrapModeT": "clamp-to-edge",
-        "imageUuidOrDatabaseUri": "bf2432d6-4b2c-4976-b28b-6032204daf04",
+        "imageUuidOrDatabaseUri": "6f3df106-b61a-4f09-965e-2de3121ca7f4",
         "isUuid": true,
         "visible": false,
         "minfilter": "linear",
@@ -34,7 +34,7 @@
     },
     "f9941": {
       "importer": "sprite-frame",
-      "uuid": "bf2432d6-4b2c-4976-b28b-6032204daf04@f9941",
+      "uuid": "6f3df106-b61a-4f09-965e-2de3121ca7f4@f9941",
       "displayName": "Portrait-Background-Mystic (1)",
       "id": "f9941",
       "name": "spriteFrame",
@@ -45,10 +45,10 @@
         "offsetY": 0,
         "trimX": 0,
         "trimY": 0,
-        "width": 2880,
-        "height": 5120,
-        "rawWidth": 2880,
-        "rawHeight": 5120,
+        "width": 720,
+        "height": 1280,
+        "rawWidth": 720,
+        "rawHeight": 1280,
         "borderTop": 0,
         "borderBottom": 0,
         "borderLeft": 0,
@@ -60,17 +60,17 @@
         "meshType": 0,
         "vertices": {
           "rawPosition": [
-            -1440,
-            -2560,
+            -360,
+            -640,
             0,
-            1440,
-            -2560,
+            360,
+            -640,
             0,
-            -1440,
-            2560,
+            -360,
+            640,
             0,
-            1440,
-            2560,
+            360,
+            640,
             0
           ],
           "indexes": [
@@ -83,12 +83,12 @@
           ],
           "uv": [
             0,
-            5120,
-            2880,
-            5120,
+            1280,
+            720,
+            1280,
             0,
             0,
-            2880,
+            720,
             0
           ],
           "nuv": [
@@ -102,18 +102,18 @@
             1
           ],
           "minPos": [
-            -1440,
-            -2560,
+            -360,
+            -640,
             0
           ],
           "maxPos": [
-            1440,
-            2560,
+            360,
+            640,
             0
           ]
         },
         "isUuid": true,
-        "imageUuidOrDatabaseUri": "bf2432d6-4b2c-4976-b28b-6032204daf04@6c48a",
+        "imageUuidOrDatabaseUri": "6f3df106-b61a-4f09-965e-2de3121ca7f4@6c48a",
         "atlasUuid": "",
         "trimType": "auto"
       },
@@ -129,6 +129,6 @@
     "type": "sprite-frame",
     "fixAlphaTransparencyArtifacts": false,
     "hasAlpha": false,
-    "redirect": "bf2432d6-4b2c-4976-b28b-6032204daf04@6c48a"
+    "redirect": "6f3df106-b61a-4f09-965e-2de3121ca7f4@6c48a"
   }
 }

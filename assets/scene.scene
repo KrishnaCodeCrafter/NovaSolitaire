@@ -867,7 +867,7 @@
       "a": 255
     },
     "_spriteFrame": {
-      "__uuid__": "bf2432d6-4b2c-4976-b28b-6032204daf04@f9941",
+      "__uuid__": "6f3df106-b61a-4f09-965e-2de3121ca7f4@f9941",
       "__expectedType__": "cc.SpriteFrame"
     },
     "_type": 0,
@@ -14990,7 +14990,7 @@
     "__prefab": null,
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 569,
+      "width": 570,
       "height": 287
     },
     "_anchorPoint": {
