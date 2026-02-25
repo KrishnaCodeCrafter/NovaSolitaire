@@ -59,6 +59,15 @@ export class CardLogic extends Component {
     // --- ANIMATION STATE ---
     private _isAnimating: boolean = false; 
 
+    // 🌟 FIX: Global Animation Locks
+    public getAnimationLock(): boolean { 
+        return this._isAnimating; 
+    }
+    
+    public setAnimationLock(isLocked: boolean) { 
+        this._isAnimating = isLocked; 
+    }
+
     // --- DRAG AND DROP STATE ---
     private _isDragging: boolean = false;
     private _dragThresholdPassed: boolean = false;
@@ -89,7 +98,7 @@ export class CardLogic extends Component {
         if (this.gameManager && !this.gameManager.isInteractable) return;
 
         if (this.gameManager) this.gameManager.resetIdleTimer();
-        if (this._isAnimating) return;
+        if (this.getAnimationLock()) return;
 
         if (this.holderType === HolderType.STOCK || this.holderType === HolderType.FOUNDATION) {
             this.handleStandardClick(event); 
@@ -351,6 +360,9 @@ export class CardLogic extends Component {
     }
 
     checkSpecificDropValidity(dragHead: Node, targetLogic: CardLogic): boolean {
+        // 🌟 FIX: Reject intruders if the pile is currently animating/locked
+        if (targetLogic.getAnimationLock()) return false; 
+
         const dragData = this.getCardData(dragHead);
         if (!dragData) return false;
 
@@ -394,13 +406,13 @@ export class CardLogic extends Component {
 
         // 🌟 FIX 2: Clear active state immediately & lock interactions on this pile
         this._draggedCards = [];
-        this._isAnimating = true; 
+        this.setAnimationLock(true); 
 
         let completedCount = 0;
         const totalCards = cardsToReturn.length;
 
         if (totalCards === 0) {
-            this._isAnimating = false;
+            this.setAnimationLock(false);
             return;
         }
 
@@ -448,7 +460,7 @@ export class CardLogic extends Component {
         });
 
         // 🌟 FIX 4: Unblock interaction now that cards are safely back
-        this._isAnimating = false; 
+        this.setAnimationLock(false); 
     }
 
     getCardUnderTouch(uiLoc: Vec2): Node | null {
@@ -475,7 +487,7 @@ export class CardLogic extends Component {
             return;
         }
 
-        if (this._isAnimating) return;
+        if (this.getAnimationLock()) return;
 
         if (this.holderType === HolderType.STOCK) {
             this.handleStockClick();
@@ -524,7 +536,7 @@ export class CardLogic extends Component {
 
     private handleStockClick() {
         if (!this.gameManager || !this.gameManager.wasteNode) return;
-        if (this._isAnimating) return;
+        if (this.getAnimationLock()) return;
 
         if (this.emptyStockVisual && this.emptyStockVisual.active) return;
 
@@ -541,15 +553,15 @@ export class CardLogic extends Component {
             // Normal Draw (Stock to Waste)
             const topCard = stockCards[stockCards.length - 1];
             this.playSFX(this.successSound);
-            this._isAnimating = true;
+            
+            // Lock will also be handled gracefully by executeStackMove
+            this.setAnimationLock(true);
             topCard.setSiblingIndex(this.node.children.length - 1); 
 
             if (wasteLogic) {
-                this.executeStackMove([topCard], wasteLogic, () => {
-                    this._isAnimating = false; 
-                });
+                this.executeStackMove([topCard], wasteLogic);
             } else {
-                this._isAnimating = false;
+                this.setAnimationLock(false);
             }
 
             if (stockCards.length - 1 === 0 && this.visualDeckTop) {
@@ -577,7 +589,7 @@ export class CardLogic extends Component {
             // ---------------------------------------------------------
             // STOCK RESET (Moving Waste back to Stock - Option 2)
             // ---------------------------------------------------------
-            this._isAnimating = true;
+            this.setAnimationLock(true);
 
             const reversedWaste = wasteCards.reverse();
             const overlay = this.gameManager.globalOverlay;
@@ -642,7 +654,7 @@ export class CardLogic extends Component {
                                 this.visualDeckTop.setSiblingIndex(this.node.children.length - 1);
                             }
                             this.updatePlaceholderVisibility();
-                            this._isAnimating = false; 
+                            this.setAnimationLock(false); 
                         }
                     })
                     .start();
@@ -657,6 +669,10 @@ export class CardLogic extends Component {
             if (onComplete) onComplete(); 
             return;
         }
+
+        // 🌟 FIX: Lock both source and target piles immediately
+        this.setAnimationLock(true);
+        target.setAnimationLock(true);
 
         const overlay = this.gameManager.globalOverlay;
         const overlayTransform = overlay.getComponent(UITransform);
@@ -723,7 +739,12 @@ export class CardLogic extends Component {
                             target.updatePlaceholderVisibility();
                         }
                         completedCount++;
-                        if (completedCount === totalCount) if (onComplete) onComplete(); 
+                        if (completedCount === totalCount) {
+                            // 🌟 FIX: Unlock after draw completes
+                            this.setAnimationLock(false);
+                            target.setAnimationLock(false);
+                            if (onComplete) onComplete(); 
+                        }
                     })
                     .start();
             });
@@ -743,7 +764,13 @@ export class CardLogic extends Component {
         });
 
         target.updatePlaceholderVisibility(); 
-        if (targetLayout) targetLayout.updateLayout(); 
+
+        // 🌟 FIX: Disable target layout temporarily so it doesn't fight the tween
+        if (targetLayout) {
+            targetLayout.updateLayout(); 
+            targetLayout.enabled = false;
+        }
+        
         this.updatePlaceholderVisibility(); 
 
         target.node.updateWorldTransform(); 
@@ -795,6 +822,7 @@ export class CardLogic extends Component {
                         cardNode.setPosition(finalLocalPositions[index]);
                         cardNode.setScale(new Vec3(1, 1, 1)); 
 
+                        // The bounce effect
                         tween(cardNode).to(0.1, { scale: new Vec3(1.05, 0.95, 1) }).to(0.15, { scale: new Vec3(1, 1, 1) }).start();
 
                         completedCount++;
@@ -807,9 +835,21 @@ export class CardLogic extends Component {
 
                             this.playSuccessEffect(nodesToMove[nodesToMove.length - 1]); 
                             this.checkAndFlipRevealedCard(); 
-                            if (targetLayout) targetLayout.updateLayout();
                             if (this.holderType === HolderType.WASTE) this.checkDeckDepletion();
-                            if (onComplete) onComplete(); 
+
+                            // 🌟 FIX: Schedule a delay equal to the bounce duration before re-enabling layout & unlocking
+                            this.scheduleOnce(() => {
+                                if (targetLayout && isValid(targetLayout.node)) {
+                                    targetLayout.enabled = true;
+                                    targetLayout.updateLayout();
+                                }
+                                
+                                // Unlock both piles
+                                this.setAnimationLock(false);
+                                target.setAnimationLock(false);
+                                
+                                if (onComplete) onComplete(); 
+                            }, 0.3);
                         }
                     }
                 })
@@ -824,6 +864,9 @@ export class CardLogic extends Component {
         for (const targetNode of this.gameManager.foundationNodes) {
             const targetLogic = targetNode.getComponent(CardLogic);
             if (!targetLogic) continue;
+
+            // 🌟 FIX: Reject intruders if the pile is currently animating/locked
+            if (targetLogic.getAnimationLock()) continue;
 
             const targetCards = targetLogic.node.children.filter(c => c.name.startsWith("card") && !c.name.includes("foundation_A"));
             const isTargetEmpty = targetCards.length === 0;
@@ -851,6 +894,9 @@ export class CardLogic extends Component {
         for (const targetNode of this.gameManager.tableauNodes) {
             const target = targetNode.getComponent(CardLogic);
             if (!target || target === this || target.holderType !== HolderType.TABLEAU) continue; 
+            
+            // 🌟 FIX: Reject intruders if the pile is currently animating/locked
+            if (target.getAnimationLock()) continue;
             
             const targetChildren = target.node.children.filter(c => 
                 c !== target.placeholderNode && 
