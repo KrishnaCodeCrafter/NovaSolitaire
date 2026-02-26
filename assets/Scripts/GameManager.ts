@@ -76,6 +76,7 @@ export class GameManager extends Component {
     @property public idleHintDelay: number = 2.0;
 
     // --- INTERNAL STATE ---
+    public moveCount: number = 0; 
     private _isFirstMovePending: boolean = true; 
     private _isIntroShowing: boolean = false;
     private _audioSource: AudioSource = null!;
@@ -131,6 +132,9 @@ export class GameManager extends Component {
             this._isFirstMovePending = false;
             this.hideHandTutorial();
         }
+
+        this.moveCount++;
+        this.node.emit('move-completed', this.moveCount);
 
         this.resetIdleTimer();
         this.ensureAudioPlays();
