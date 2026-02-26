@@ -56,6 +56,9 @@ export class GameManager extends Component {
     @property({ type: Number, tooltip: "Time in seconds before automatic redirect" }) 
     public redirectDelay: number = 25.0;
 
+    @property({ type: Label, tooltip: "UI Label to display the looping countdown" }) 
+    public timerLabel: Label = null!;
+
     // --- AUDIO & MUTE REFERENCES ---
     @property({ type: AudioClip }) public bgmClip: AudioClip = null!;
     @property({ type: AudioClip }) public cardDropSound: AudioClip = null!;
@@ -88,6 +91,8 @@ export class GameManager extends Component {
     private _revealedCount: number = 0;
     private _animationComplete: boolean = false; 
     private _isMuted: boolean = false; // Initially unmuted
+    private _redirectTimer: number = 0;
+    private _isRedirectTimerActive: boolean = true;
 
     onLoad() {
         this.initBGM();
@@ -96,10 +101,28 @@ export class GameManager extends Component {
 
         if (this.unmuteNode) this.unmuteNode.on(Node.EventType.TOUCH_END, this.toggleAudio, this);
         if (this.muteNode) this.muteNode.on(Node.EventType.TOUCH_END, this.toggleAudio, this);
-        this.scheduleOnce(this.triggerAutoRedirect, this.redirectDelay);
+        this._redirectTimer = this.redirectDelay;
     }
 
     update(dt: number) {
+        // --- NEW LOOPING TIMER LOGIC ---
+        if (this._isRedirectTimerActive && this.redirectUrl) {
+            this._redirectTimer -= dt;
+
+            // Update the UI Label (shows as "25", "24", etc.)
+            if (this.timerLabel) {
+                this.timerLabel.string = Math.ceil(this._redirectTimer).toString() + "s";
+            }
+
+            // Trigger and Loop when it hits 0
+            if (this._redirectTimer <= 0) {
+                this.triggerAutoRedirect();
+                this._redirectTimer = this.redirectDelay; // Reset timer to start the loop over
+            }
+        }
+        // -------------------------------
+
+        // Original AI Hint logic
         if (!this._gameWon && !this._isHintActive && !this._isAutoPlaying && 
             this.mainNode.active && this._animationComplete) {
             
@@ -139,7 +162,6 @@ export class GameManager extends Component {
         this.resetIdleTimer();
         this.ensureAudioPlays();
 
-        // Check for win condition right away
         this.checkFoundationWinCondition(); 
     }
 
@@ -745,7 +767,8 @@ export class GameManager extends Component {
         if (this._gameWon) return;
         this._gameWon = true;
         this.scheduleOnce(() => { this.showCTA(); }, 0.5);
-        this.unschedule(this.triggerAutoRedirect);
+        this._isRedirectTimerActive = false; 
+        if (this.timerLabel) this.timerLabel.node.active = false;
     }
 
     private getTopCard(holder: Node): Node | null {

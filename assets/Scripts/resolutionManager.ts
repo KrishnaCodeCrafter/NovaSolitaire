@@ -1,4 +1,4 @@
-import { _decorator, Component, view, ResolutionPolicy, Node, UITransform, tween, Vec3, UIOpacity } from 'cc';
+import { _decorator, Component, view, ResolutionPolicy, Node, UITransform, tween, Vec3, UIOpacity, Widget } from 'cc';
 import { GameManager } from './GameManager';
 const { ccclass, property } = _decorator;
 
@@ -14,6 +14,8 @@ export class ResolutionManager extends Component {
     @property(Node) landscapeBackground: Node = null!;
     @property(Node) portraitIcon: Node = null!; 
     @property(Node) landscapeIcon: Node = null!;
+
+    @property(Node) dynamicWidgetNode: Node = null!;
 
     @property(GameManager) gameManager: GameManager = null!; 
 
@@ -38,6 +40,40 @@ export class ResolutionManager extends Component {
             view.setDesignResolutionSize(1440, 720, ResolutionPolicy.FIXED_HEIGHT);
         } else {
             view.setDesignResolutionSize(720, 1440, ResolutionPolicy.FIXED_WIDTH);
+        }
+
+        if (this.dynamicWidgetNode) {
+            const widget = this.dynamicWidgetNode.getComponent(Widget);
+            if (widget) {
+                if (this._isLandscape) {
+                    // Landscape: Bottom 3%, Left 6%
+                    widget.isAlignBottom = true;
+                    widget.isAbsoluteBottom = false; // False means we use percentages
+                    widget.bottom = 0.03;
+
+                    widget.isAlignLeft = true;
+                    widget.isAbsoluteLeft = false;
+                    widget.left = 0.04;
+
+                    // Turn off Portrait anchors
+                    widget.isAlignTop = false;
+                    widget.isAlignRight = false;
+                } else {
+                    // Portrait: Top 3%, Right 6%
+                    widget.isAlignTop = true;
+                    widget.isAbsoluteTop = false;
+                    widget.top = 0.03;
+
+                    widget.isAlignRight = true;
+                    widget.isAbsoluteRight = false;
+                    widget.right = 0.06;
+
+                    // Turn off Landscape anchors
+                    widget.isAlignBottom = false;
+                    widget.isAlignLeft = false;
+                }
+                widget.updateAlignment();
+            }
         }
 
         if (this._isLandscape) {
