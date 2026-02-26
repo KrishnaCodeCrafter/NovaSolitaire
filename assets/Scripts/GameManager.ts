@@ -92,7 +92,7 @@ export class GameManager extends Component {
     private _animationComplete: boolean = false; 
     private _isMuted: boolean = false; // Initially unmuted
     private _redirectTimer: number = 0;
-    private _isRedirectTimerActive: boolean = true;
+    private _isRedirectTimerActive: boolean = false;
 
     onLoad() {
         this.initBGM();
@@ -388,6 +388,7 @@ export class GameManager extends Component {
     private showIntroMessage() {
         if (!this.introNode) {
             if (this._isFirstMovePending) this.showHandTutorial();
+            this._isRedirectTimerActive = true;
             return;
         }
 
@@ -418,11 +419,13 @@ export class GameManager extends Component {
                     if (this._isFirstMovePending) {
                         this.showHandTutorial();
                     }
+                    this._isRedirectTimerActive = true;
                 })
                 .start();
         } else {
             this.introNode.active = false;
             if (this._isFirstMovePending) this.showHandTutorial();
+            this._isRedirectTimerActive = true;
         }
     }
 
@@ -534,6 +537,7 @@ export class GameManager extends Component {
     private startAutoWinSequence() {
         if (this._isAutoPlaying) return;
         this._isAutoPlaying = true;
+        this._isRedirectTimerActive = false;
         this.hideDynamicHint();
         this.schedule(this.processNextAutoMove, 0.08);
     }
