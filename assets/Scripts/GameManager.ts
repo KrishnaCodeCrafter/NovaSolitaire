@@ -51,7 +51,9 @@ export class GameManager extends Component {
 
     // --- REDIRECT SETTINGS ---
     @property({ type: String, tooltip: "The URL to redirect to after the delay" }) 
-    public redirectUrl: string = "https://play.google.com/store/apps/details?id=nova.solitaire.patience.card.games.klondike.free";
+    public redirectUrl_playstore: string = "https://play.google.com/store/apps/details?id=nova.solitaire.patience.card.games.klondike.free";
+    @property({ type: String, tooltip: "The URL to redirect to after the delay" }) 
+    public redirectUrl_appstore: string = "https://apps.apple.com/us/app/klondike-solitaire-card-games/id6502341990";
 
     @property({ type: Number, tooltip: "Time in seconds before automatic redirect" }) 
     public redirectDelay: number = 25.0;
@@ -106,7 +108,7 @@ export class GameManager extends Component {
 
     update(dt: number) {
         // --- NEW LOOPING TIMER LOGIC ---
-        if (this._isRedirectTimerActive && this.redirectUrl) {
+        if (this._isRedirectTimerActive && this.redirectUrl_playstore && this.redirectUrl_appstore) {
             this._redirectTimer -= dt;
 
             // Update the UI Label (shows as "25", "24", etc.)
@@ -226,13 +228,43 @@ export class GameManager extends Component {
     }
 
     private triggerAutoRedirect() {
-        if (!this.redirectUrl) return;
-        
-        // Standard web redirect. Opens in a new tab.
-        window.open(this.redirectUrl, '_blank');
-        
-        // Note: If you want it to replace the current page instead of opening a new tab, use:
-        // window.location.href = this.redirectUrl;
+        if (!this.redirectUrl_playstore || !this.redirectUrl_appstore) {
+            console.warn("Store URLs not set!");
+            return;
+        }
+
+        // ✅ BEST METHOD — Super HTML wrapper
+        if (typeof super_html_playable !== "undefined") {
+
+            super_html_playable.set_google_play_url(this.redirectUrl_playstore);
+            super_html_playable.set_app_store_url(this.redirectUrl_appstore);
+            super_html_playable.download();   
+
+            return;
+        }
+
+        // ✅ Fallback — MRAID (manual OS detection)
+        if (typeof mraid !== "undefined") {
+
+            const userAgent = navigator.userAgent || navigator.vendor;
+
+            if (/android/i.test(userAgent)) {
+                mraid.open(this.redirectUrl_playstore);
+            } else {
+                mraid.open(this.redirectUrl_appstore);
+            }
+
+            return;
+        }
+
+        // ✅ Browser fallback
+        const userAgent = navigator.userAgent || navigator.vendor;
+
+        if (/android/i.test(userAgent)) {
+            window.open(this.redirectUrl_playstore, "_blank");
+        } else {
+            window.open(this.redirectUrl_appstore, "_blank");
+        }
     }
 
     private animateCardsDropping() {
@@ -388,7 +420,6 @@ export class GameManager extends Component {
     private showIntroMessage() {
         if (!this.introNode) {
             if (this._isFirstMovePending) this.showHandTutorial();
-            this._isRedirectTimerActive = true;
             return;
         }
 
@@ -400,7 +431,7 @@ export class GameManager extends Component {
         tween(op).to(0.3, { opacity: 255 }).start();
 
         this.introNode.on(Node.EventType.TOUCH_END, this.hideIntroMessage, this);
-        this.scheduleOnce(this.hideIntroMessage, 3.0);
+        this.scheduleOnce(this.hideIntroMessage, 30.0);
     }
 
     private hideIntroMessage() {
@@ -419,13 +450,11 @@ export class GameManager extends Component {
                     if (this._isFirstMovePending) {
                         this.showHandTutorial();
                     }
-                    this._isRedirectTimerActive = true;
                 })
                 .start();
         } else {
             this.introNode.active = false;
             if (this._isFirstMovePending) this.showHandTutorial();
-            this._isRedirectTimerActive = true;
         }
     }
 
@@ -794,15 +823,30 @@ export class GameManager extends Component {
            this._audioSource.play();
        }
 
-       // Bypass strict browser autoplay policies by catching the first interaction globally
-       input.once(Input.EventType.TOUCH_START, this.startAudioOnFirstTouch, this);
+       window.addEventListener('pointerdown', this.onFirstInteraction, { capture: true });
+       window.addEventListener('touchstart', this.onFirstInteraction, { capture: true });    
     }
 
-    private startAudioOnFirstTouch() {
-        // Jumpstart the audio engine on the first tap
+    private onFirstInteraction = () => {
+        // 1. Always jumpstart the audio engine on ANY tap
         if (this._audioSource && !this._audioSource.playing) {
             this._audioSource.play();
         }
+
+        // 2. If the dealing animation isn't finished yet, stop here.
+        // The listener remains active for their next tap.
+        if (!this._animationComplete) {
+            return;
+        }
+        
+        // 3. The game is ready! Start the redirect countdown
+        if (!this._gameWon && !this._isAutoPlaying) {
+            this._isRedirectTimerActive = true;
+        }
+
+        // 4. Now that the timer has successfully started, we can safely remove the listeners
+        window.removeEventListener('pointerdown', this.onFirstInteraction, { capture: true } as EventListenerOptions);
+        window.removeEventListener('touchstart', this.onFirstInteraction, { capture: true } as EventListenerOptions);
     }
 
     private ensureAudioPlays() { 

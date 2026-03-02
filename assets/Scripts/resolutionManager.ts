@@ -53,7 +53,7 @@ export class ResolutionManager extends Component {
 
                     widget.isAlignLeft = true;
                     widget.isAbsoluteLeft = false;
-                    widget.left = 0.04;
+                    widget.left = 0.03;
 
                     // Turn off Portrait anchors
                     widget.isAlignTop = false;
